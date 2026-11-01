@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lyra – search, queue, download</title>
+<style>
+:root{--bg:#000;--fg:#ededed;--mut:#8a8a8a;--line:#262626;--card:#0d0d0d;--ok:#6ee7a0;--err:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:inherit}
+header{display:flex;justify-content:space-between;align-items:center;max-width:820px;margin:0 auto;padding:18px 16px}
+.logo{font-size:22px;font-weight:700;letter-spacing:-.5px;cursor:pointer}
+nav button{background:none;border:0;color:var(--mut);font:inherit;cursor:pointer;margin-left:16px;padding:4px 0}
+nav button.on{color:var(--fg);border-bottom:1px solid var(--fg)}
+main{max-width:820px;margin:0 auto;padding:0 16px 80px}
+.hero{text-align:center;margin:9vh 0 28px}
+.hero h1{font-size:34px;margin:0 0 6px;letter-spacing:-1px}.hero p{color:var(--mut);margin:0}
+.box{display:flex;gap:8px;border:1px solid var(--line);border-radius:14px;padding:6px;background:var(--card)}
+.box:focus-within{border-color:#555}
+.box input{flex:1;background:none;border:0;color:var(--fg);font:inherit;font-size:17px;padding:10px 12px;outline:0;min-width:0}
+.box button,.btn{background:var(--fg);color:#000;border:0;border-radius:9px;padding:8px 16px;font:inherit;font-weight:600;cursor:pointer}
+.btn.ghost{background:none;color:var(--fg);border:1px solid var(--line)}
+.btn:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.tabs{display:flex;gap:6px;margin:12px 0 20px;justify-content:center}
+.tabs button{background:none;border:1px solid var(--line);color:var(--mut);border-radius:20px;padding:4px 14px;font:inherit;cursor:pointer}
+.tabs button.on{color:#000;background:var(--fg);border-color:var(--fg)}
+.row{display:flex;align-items:center;gap:14px;padding:10px 6px;border-bottom:1px solid var(--line)}
+.row img{width:52px;height:52px;border-radius:6px;object-fit:cover;background:#1a1a1a;flex:none}
+.row .t{flex:1;min-width:0;cursor:pointer}.row .t b,.row .t span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .t span{color:var(--mut);font-size:13px}
+.row .acts{display:flex;gap:6px;flex:none}
+.detail{display:flex;gap:18px;align-items:flex-end;margin:10px 0 18px}.detail img{width:140px;height:140px;border-radius:10px}
+.detail h2{margin:0}.detail p{margin:2px 0 10px;color:var(--mut)}
+.bar{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--fg);transition:width .4s}
+.bar.done i{background:var(--ok)}.bar.failed i{background:var(--err)}
+.st{font-size:13px;color:var(--mut)}.links a{margin-right:10px;font-size:13px}
+.pager{display:flex;justify-content:center;gap:12px;align-items:center;margin-top:18px;color:var(--mut)}
+dialog{background:#0d0d0d;color:var(--fg);border:1px solid var(--line);border-radius:14px;max-width:560px;width:92vw;padding:20px}
+dialog::backdrop{background:rgba(0,0,0,.75)}
+.lyr{max-height:60vh;overflow:auto;white-space:pre-wrap;font-size:18px;line-height:1.7;margin:12px 0}
+.lyr p{margin:0}.lyr small{color:var(--mut);font-size:11px;margin-right:10px;font-variant-numeric:tabular-nums}
+.empty{color:var(--mut);text-align:center;padding:40px 0}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:#000;padding:8px 16px;border-radius:10px;display:none}
+</style></head><body>
+<header><div class="logo" onclick="go('search')">lyra</div>
+<nav><button id="n-search" class="on" onclick="go('search')">Search</button><button id="n-queue" onclick="go('queue')">Queue</button></nav></header>
+<main id="app"></main>
+<dialog id="dlg"><div id="dlgBody"></div><button class="btn ghost" onclick="dlg.close()">Close</button></dialog>
+<div id="toast"></div>
+<script>
+const API='../api/index.php', $=s=>document.querySelector(s), dlg=$('#dlg');
+let entity='song', view='search', qpage=1, timer=null, lastQuery='';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const j=(a,p={},o)=>fetch(`${API}?action=${a}&`+new URLSearchParams(p),o).then(r=>r.json());
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200)};
+const mins=ms=>ms?Math.floor(ms/60000)+':'+String(Math.floor(ms/1000)%60).padStart(2,'0'):'';
+
+function go(v){view=v;clearInterval(timer);['search','queue'].forEach(x=>$('#n-'+x).classList.toggle('on',x===v));
+  if(v==='queue'){renderQueue();timer=setInterval(loadQueue,3000)}else renderSearch()}
+
+function renderSearch(){ $('#app').innerHTML=`
+ <div class="hero"><h1>Find it. Queue it. Keep it.</h1><p>Search any song, album or artist.</p></div>
+ <form class="box" onsubmit="event.preventDefault();doSearch()"><input id="q" placeholder="Search music" value="${esc(lastQuery)}" autofocus><button>Search</button></form>
+ <div class="tabs">${[['song','Songs'],['album','Albums'],['musicArtist','Artists']].map(([k,l])=>`<button type="button" class="${k===entity?'on':''}" onclick="entity='${k}';renderSearch();if(lastQuery)doSearch()">${l}</button>`).join('')}</div>
+ <div id="res"></div>`;}
+
+async function doSearch(){ lastQuery=$('#q').value.trim(); if(!lastQuery)return;
+  $('#res').innerHTML='<div class="empty">Searching…</div>';
+  const d=await j('search',{term:lastQuery,entity});
+  $('#res').innerHTML=(d.results||[]).map(rowHtml).join('')||'<div class="empty">No results. Try another spelling.</div>';}
+
+function rowHtml(r){
+  if(r.wrapperType==='artist') return `<div class="row"><img alt=""><div class="t" onclick="openArtist(${r.artistId})"><b>${esc(r.artistName)}</b><span>${esc(r.primaryGenreName)}</span></div>
+   <div class="acts"><button class="btn ghost" onclick="openArtist(${r.artistId})">Albums</button><button class="btn" onclick="add('artist',${r.artistId},this)">Queue all</button></div></div>`;
+  if(r.wrapperType==='collection') return `<div class="row"><img src="${esc(r.artwork)}" alt=""><div class="t" onclick="openAlbum(${r.collectionId})"><b>${esc(r.collectionName)}</b><span>${esc(r.artistName)} · ${r.trackCount} tracks · ${(r.releaseDate||'').slice(0,4)}</span></div>
+   <div class="acts"><button class="btn ghost" onclick="openAlbum(${r.collectionId})">Tracks</button><button class="btn" onclick="add('collection',${r.collectionId},this)">Queue album</button></div></div>`;
+  return `<div class="row"><img src="${esc(r.artwork)}" alt=""><div class="t"><b>${esc(r.trackName)}</b><span>${esc(r.artistName)} · ${esc(r.collectionName)} · ${mins(r.trackTimeMillis)}</span></div>
+   <div class="acts"><button class="btn ghost" onclick="lyrics(${r.trackId},'${esc(r.trackName).replace(/'/g,'')}')">Lyrics</button><button class="btn" onclick="add('track',${r.trackId},this)">Download</button></div></div>`;}
+
+async function openAlbum(id){ $('#app').innerHTML='<div class="empty">Loading…</div>';
+  const d=(await j('lookup',{id,entity:'song'})).results, c=d[0], ts=d.filter(x=>x.wrapperType==='track');
+  $('#app').innerHTML=`<button class="btn ghost" onclick="renderSearch();doSearch()">Back</button>
+  <div class="detail"><img src="${esc(c.artwork)}" alt=""><div><h2>${esc(c.collectionName)}</h2><p>${esc(c.artistName)} · ${ts.length} tracks</p><button class="btn" onclick="add('collection',${id},this)">Download album</button></div></div>`+ts.map(rowHtml).join('');}
+
+async function openArtist(id){ $('#app').innerHTML='<div class="empty">Loading…</div>';
+  const d=(await j('lookup',{id,entity:'album'})).results, a=d[0], al=d.filter(x=>x.wrapperType==='collection');
+  $('#app').innerHTML=`<button class="btn ghost" onclick="renderSearch();doSearch()">Back</button>
+  <div class="detail"><div><h2>${esc(a.artistName)}</h2><p>${al.length} albums</p><button class="btn" onclick="add('artist',${id},this)">Download everything</button></div></div>`+al.map(rowHtml).join('');}
+
+async function add(type,id,btn){ btn.disabled=true; const old=btn.textContent; btn.textContent='Adding…';
+  try{const d=await j('queue_add',{},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,id})});
+    toast(d.error?'Could not add: '+d.error:`Queued ${d.added} track${d.added==1?'':'s'}`);btn.textContent='Queued'}
+  catch(e){toast('Could not reach the server');btn.textContent=old;btn.disabled=false}}
+
+async function lyrics(id,name){ $('#dlgBody').innerHTML=`<h3>${name}</h3><div class="lyr">Loading…</div>`; dlg.showModal();
+  const d=await j('lyrics',{track_id:id}); let h='';
+  if(d.lyrics_synced) h=d.lyrics_synced.split('\n').map(l=>{const m=l.match(/^\[(\d+:\d+)[^\]]*\](.*)/);return m?`<p><small>${m[1]}</small>${esc(m[2])}</p>`:''}).join('');
+  else if(d.lyrics_plain) h=esc(d.lyrics_plain); else h='No lyrics found for this track.';
+  $('#dlgBody').innerHTML=`<h3>${name}</h3><small style="color:var(--mut)">${d.lyrics_synced?'Synced':'Plain'}${d.lyrics_source?' · '+d.lyrics_source:''}</small><div class="lyr">${h}</div>`;}
+
+function renderQueue(){ $('#app').innerHTML='<h2 style="margin-top:20px">Queue</h2><div id="ql"></div><div class="pager" id="pg"></div>'; loadQueue(); }
+async function loadQueue(){ const d=await j('queue_list',{page:qpage,per_page:15}); if(view!=='queue')return;
+  $('#ql').innerHTML=d.items.map(i=>`<div class="row"><img src="${esc(i.artwork)}" alt=""><div class="t" style="cursor:default"><b>${esc(i.name)}</b><span>${esc(i.artist_name)}</span>
+   <div class="bar ${i.status}"><i style="width:${i.progress}%"></i></div><div class="st">${i.status.replace('_',' ')} · ${i.progress}%${i.message&&i.status==='failed'?' · '+esc(i.message):''}</div></div>
+   <div class="acts links">${i.bale_url?`<a href="${i.bale_url}" target="_blank" rel="noopener">Bale</a>`:''}${i.telegram_url?`<a href="${i.telegram_url}" target="_blank" rel="noopener">Telegram</a>`:''}
+   <button class="btn ghost" onclick="lyrics(${i.track_id},'${esc(i.name).replace(/'/g,'')}')">Lyrics</button></div></div>`).join('')||'<div class="empty">Nothing queued yet. Search for a track and press Download.</div>';
+  $('#pg').innerHTML=d.pages>1?`<button class="btn ghost" ${qpage<=1?'disabled':''} onclick="qpage--;loadQueue()">Prev</button>Page ${d.page} of ${d.pages}<button class="btn ghost" ${qpage>=d.pages?'disabled':''} onclick="qpage++;loadQueue()">Next</button>`:'';}
+renderSearch();
+</script></body></html>
