@@ -125,3 +125,23 @@ jobs:
         with:
           path: bot/.worker-state/last_download_method
           key: mman-download-method-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  rerun-on-failure:
+    needs: process-queue
+    if: failure() && github.run_attempt < 3
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Rerun failed job
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runId = context.runId;
+            const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+            await github.rest.actions.rerunFailedJobs({
+              owner,
+              repo,
+              run_id: runId
+            });
+            console.log(`Rerun requested for run ${runId}`);
