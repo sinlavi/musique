@@ -287,7 +287,7 @@ if (($_SESSION['mman_installer_failures'] ?? 0) >= 5) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#f6f7f5">
+<meta name="theme-color" content="#000000">
 <title>mman host installer</title>
 <style>
 body{margin:0;background:#f3f0e8;color:#252c26;font:15px/1.55 system-ui,sans-serif}.wrap{max-width:760px;margin:36px auto;padding:0 18px 50px}h1{font:32px Georgia,serif;color:#244331}h2{font:22px Georgia,serif}.panel{background:#fffdf8;border:1px solid #d9d4c7;padding:22px;margin:18px 0}.notice{padding:12px;background:#fff2d6;border:1px solid #ddbd77}.error{padding:12px;background:#fbe9e6;border:1px solid #cc8d80}.success{padding:12px;background:#e8f4e9;border:1px solid #8bb090}label{display:block;font-weight:600;margin:12px 0 5px}input{width:100%;padding:10px;border:1px solid #c9c4b8;border-radius:3px;box-sizing:border-box;font:inherit}input[type=checkbox]{width:auto;margin-right:8px}.btn{background:#365d48;color:white;border:0;border-radius:3px;padding:11px 16px;font:inherit;cursor:pointer;margin-top:14px}.hint{color:#77796f;font-size:13px}.key{word-break:break-all;background:#eeeae0;padding:10px;font-family:monospace}
@@ -323,6 +323,29 @@ input:focus{outline:2px solid #8eaa96;outline-offset:1px}
 .notice{border:1px solid #ddbd77;border-radius:0;background:#fff2d6}.error{border:1px solid #cc8d80;border-radius:0;background:#fbe9e6}.success{border:1px solid #8bb090;border-radius:0;background:#e8f4e9}
 .key{border:1px solid var(--line);border-radius:0;background:#eeeae0}.footer{max-width:760px;margin:20px auto;color:var(--muted);font-size:13px}
 @media(max-width:680px){.wrap{padding:0 14px 35px}.masthead{align-items:flex-start;gap:12px;flex-wrap:wrap}.brand{font-size:25px}.intro{padding-top:22px}.panel{padding:16px}}
+/* Match the app's original black interface. */
+:root{color-scheme:dark;--bg:#000;--fg:#ededed;--mut:#8a8a8a;--line:#262626;--card:#0d0d0d;--ok:#6ee7a0;--err:#ff6b6b}
+body{background:#000;color:#ededed;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:820px;margin:0 auto;padding:0 16px 50px}
+.masthead{border-bottom:1px solid #262626;padding:18px 0}
+.brand{color:#ededed;font:700 22px system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:-.5px}
+.brand:before{display:none}.brand small{color:#8a8a8a;font:11px system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:1px}
+.mast-label{color:#8a8a8a}
+.intro{max-width:none;border-color:#262626;padding:22px 0 16px}
+.eyebrow{color:#8a8a8a}
+h1{color:#ededed;font:600 30px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:-.7px}
+h2{color:#ededed;font:600 22px system-ui,-apple-system,"Segoe UI",sans-serif}
+.panel{max-width:none;border:1px solid #262626;border-radius:12px;background:#0d0d0d;box-shadow:none}
+.btn{border-color:#ededed;border-radius:9px;background:#ededed;color:#000;font:600 14px system-ui,sans-serif}
+.btn:hover{background:#fff}
+input{border:1px solid #262626;border-radius:8px;background:#080808;color:#ededed;font:14px system-ui,sans-serif}
+input:focus{outline:2px solid #ededed;outline-offset:2px}
+.notice{border-color:#5a4a25;border-radius:9px;background:#211b0e;color:#f0d99c}
+.error{border-color:#5c3030;border-radius:9px;background:#211010;color:#ffaaaa}
+.success{border-color:#28533b;border-radius:9px;background:#0b1c12;color:#b8f2cd}
+.key{border-color:#262626;border-radius:8px;background:#080808;color:#ededed}
+.hint,.footer{color:#8a8a8a}
+@media(max-width:680px){.wrap{padding:0 14px 35px}.masthead{align-items:flex-start;gap:12px;flex-wrap:wrap}.brand{font-size:22px}.intro{padding-top:22px}.panel{padding:16px}}
 </style>
 </head>
 <body><main class="wrap">

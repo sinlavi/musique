@@ -168,6 +168,26 @@ function save_results($pdo, $results) {
 function slim($results) { // upscale artwork for the client
   return array_map(function ($r) { if (isset($r['artworkUrl100'])) $r['artwork'] = art($r['artworkUrl100']); return $r; }, $results);
 }
+function attach_bale_playback($pdo, $results) {
+  $trackIds = array_values(array_unique(array_filter(array_map(
+    fn($row) => ($row['wrapperType'] ?? '') === 'track' ? (int)($row['trackId'] ?? 0) : 0,
+    $results
+  ))));
+  if (!$trackIds) return $results;
+  $placeholders = implode(',', array_fill(0, count($trackIds), '?'));
+  $stmt = $pdo->prepare("SELECT track_id FROM track_files
+    WHERE bale_file_id IS NOT NULL AND TRIM(bale_file_id) <> '' AND track_id IN ($placeholders)");
+  $stmt->execute($trackIds);
+  $crawled = array_fill_keys(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN)), true);
+  foreach ($results as &$row) {
+    if (($row['wrapperType'] ?? '') !== 'track') continue;
+    $trackId = (int)($row['trackId'] ?? 0);
+    $row['is_crawled'] = isset($crawled[$trackId]);
+    $row['bale_stream_url'] = $row['is_crawled'] ? signed_bale_url($trackId) : null;
+  }
+  unset($row);
+  return $results;
+}
 // Resolve track ids for a track / collection / artist (artist = all songs of all albums)
 function tracks_for($pdo, $type, $id) {
   if ($type === 'track' || $type === 'collection') $res = itunes('lookup', ['id' => $id, 'entity' => 'song']);
@@ -242,11 +262,11 @@ switch ($action) {
     $term = trim($_GET['term'] ?? ''); if ($term === '') out(['error' => 'term required'], 400);
     $entity = in_array($_GET['entity'] ?? '', ['song', 'album', 'musicArtist']) ? $_GET['entity'] : 'song';
     $res = itunes('search', ['term' => $term, 'media' => 'music', 'entity' => $entity, 'limit' => min(50, (int)($_GET['limit'] ?? 25))]);
-    save_results($pdo, $res); out(['results' => slim($res)]);
+    save_results($pdo, $res); out(['results' => slim(attach_bale_playback($pdo, $res))]);
   }
   case 'lookup': { // id + entity=song|album ; album id -> its songs, artist id -> its albums
     $res = itunes('lookup', ['id' => (int)$_GET['id'], 'entity' => $_GET['entity'] ?? 'song', 'limit' => 200]);
-    save_results($pdo, $res); out(['results' => slim($res)]);
+    save_results($pdo, $res); out(['results' => slim(attach_bale_playback($pdo, $res))]);
   }
   case 'queue_add': { // POST {type: track|collection|artist, id}
     $user = current_user(true);
@@ -281,11 +301,12 @@ switch ($action) {
     );
     foreach ($summary->fetchAll() as $row) $statusCounts[$row['status']] = (int)$row['count'];
     $off = ($page - 1) * $pp;
-    $s = $pdo->prepare("SELECT q.id,q.status,q.progress,q.message,q.updated_at,t.track_id,t.name,t.artist_name,t.collection_name,t.artwork,
+    $s = $pdo->prepare("SELECT q.id,q.status,q.progress,q.message,q.updated_at,t.track_id,t.name,t.artist_name,t.collection_name,t.artwork,t.preview_url,
       f.bale_message_id,f.bale_file_id,f.telegram_message_id,f.telegram_file_id FROM queue q JOIN tracks t ON t.track_id=q.track_id
       LEFT JOIN track_files f ON f.track_id=q.track_id $w ORDER BY q.id DESC LIMIT $pp OFFSET $off");
     $s->execute($p); $rows = $s->fetchAll();
     foreach ($rows as &$r) {
+      $r['is_crawled'] = !empty($r['bale_file_id']);
       $r['bale_stream_url'] = $r['bale_file_id'] ? signed_bale_url((int)$r['track_id']) : null;
       $r['bale_url'] = $r['bale_message_id'] && $cfg['bale_channel_username'] ? "https://ble.ir/{$cfg['bale_channel_username']}/{$r['bale_message_id']}" : null;
       $r['telegram_url'] = $r['telegram_message_id'] && $cfg['telegram_channel_username'] ? "https://t.me/{$cfg['telegram_channel_username']}/{$r['telegram_message_id']}" : null;
@@ -325,12 +346,15 @@ switch ($action) {
     $user = current_user(true); $page = max(1, (int)($_GET['page'] ?? 1)); $pp = min(100, max(1, (int)($_GET['per_page'] ?? 20)));
     $count = $pdo->prepare('SELECT COUNT(*) FROM favorites WHERE user_id=?'); $count->execute([$user['id']]); $total = (int)$count->fetchColumn();
     $offset = ($page - 1) * $pp;
-    $s = $pdo->prepare('SELECT t.track_id,t.name,t.artist_name,t.collection_name,t.artwork,t.duration_ms,
+    $s = $pdo->prepare('SELECT t.track_id,t.name,t.artist_name,t.collection_name,t.artwork,t.duration_ms,t.preview_url,
       tf.bale_file_id,tf.telegram_file_id FROM favorites f JOIN tracks t ON t.track_id=f.track_id
       LEFT JOIN track_files tf ON tf.track_id=t.track_id WHERE f.user_id=? ORDER BY f.created_at DESC LIMIT ? OFFSET ?');
     $s->bindValue(1, $user['id'], PDO::PARAM_INT); $s->bindValue(2, $pp, PDO::PARAM_INT); $s->bindValue(3, $offset, PDO::PARAM_INT); $s->execute();
     $items = $s->fetchAll();
-    foreach ($items as &$item) $item['bale_stream_url'] = $item['bale_file_id'] ? signed_bale_url((int)$item['track_id']) : null;
+    foreach ($items as &$item) {
+      $item['is_crawled'] = !empty($item['bale_file_id']);
+      $item['bale_stream_url'] = $item['bale_file_id'] ? signed_bale_url((int)$item['track_id']) : null;
+    }
     out(['page' => $page, 'per_page' => $pp, 'total' => $total, 'pages' => (int)ceil($total / $pp), 'items' => $items]);
   }
   case 'lyrics': { // cached lyrics, else live lrclib fallback
