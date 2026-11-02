@@ -4,20 +4,42 @@ $cfg = require __DIR__ . '/config.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Headers: Content-Type, X-API-Key');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') exit;
-$pdo = new PDO($cfg['db']['dsn'], $cfg['db']['user'], $cfg['db']['pass'],
-  [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
-
 function out($d, $c = 200) { http_response_code($c); echo json_encode($d, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); exit; }
+
+try {
+  $dbDir = dirname($cfg['sqlite_path']);
+  if ($cfg['sqlite_path'] !== ':memory:' && !is_dir($dbDir) && !mkdir($dbDir, 0770, true) && !is_dir($dbDir)) {
+    throw new RuntimeException('Unable to create SQLite database directory');
+  }
+  $pdo = new PDO('sqlite:' . $cfg['sqlite_path'], null, null, [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_TIMEOUT => 5,
+  ]);
+  $pdo->exec('PRAGMA busy_timeout = 5000');
+  $schema = file_get_contents(__DIR__ . '/schema.sql');
+  if ($schema === false) throw new RuntimeException('Unable to read SQLite schema');
+  $pdo->exec($schema);
+  $columns = $pdo->query('PRAGMA table_info(track_files)')->fetchAll(PDO::FETCH_COLUMN, 1);
+  if (!in_array('telegram_file_id', $columns, true)) {
+    $pdo->exec('ALTER TABLE track_files ADD COLUMN telegram_file_id TEXT');
+  }
+} catch (Throwable $e) {
+  error_log('mman database initialization failed: ' . $e->getMessage());
+  out(['error' => 'database_initialization_failed'], 500);
+}
+
 function body() { return json_decode(file_get_contents('php://input'), true) ?: $_POST; }
 function need_key() {
   global $cfg; $k = $_SERVER['HTTP_X_API_KEY'] ?? '';
-  if (!hash_equals($cfg['api_key'], $k)) out(['error' => 'unauthorized'], 401);
+  if ($cfg['api_key'] === '' || !hash_equals($cfg['api_key'], $k)) out(['error' => 'unauthorized'], 401);
 }
 function http_get($url, $headers = []) {
   $ch = curl_init($url);
   curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 20, CURLOPT_FOLLOWLOCATION => 1,
-    CURLOPT_HTTPHEADER => array_merge(['User-Agent: music-proxy/1.0'], $headers)]);
+    CURLOPT_HTTPHEADER => array_merge(['User-Agent: mman-proxy/1.0'], $headers)]);
   $r = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
   return [$code, $r];
 }
@@ -29,8 +51,13 @@ function itunes($path, $params) {
 }
 function upsert($pdo, $t, $row) {
   $c = array_keys($row);
+  $primaryKeys = ['artists' => 'artist_id', 'collections' => 'collection_id', 'tracks' => 'track_id', 'track_files' => 'track_id'];
+  $key = $primaryKeys[$t] ?? null;
+  if ($key === null || !in_array($key, $c, true)) throw new InvalidArgumentException('Invalid upsert table or primary key');
+  $updates = array_values(array_filter($c, fn($column) => $column !== $key));
+  if (!$updates) throw new InvalidArgumentException('Upsert requires at least one non-key column');
   $sql = "INSERT INTO $t (" . implode(',', $c) . ") VALUES (" . implode(',', array_map(fn($x) => ":$x", $c)) .
-    ") ON DUPLICATE KEY UPDATE " . implode(',', array_map(fn($x) => "$x=VALUES($x)", $c));
+    ") ON CONFLICT($key) DO UPDATE SET " . implode(',', array_map(fn($x) => "$x=excluded.$x", $updates));
   $pdo->prepare($sql)->execute($row);
 }
 function d($s) { return $s ? substr($s, 0, 10) : null; }
@@ -73,9 +100,9 @@ function tracks_for($pdo, $type, $id) {
   if ($type === 'track' || $type === 'collection') $res = itunes('lookup', ['id' => $id, 'entity' => 'song']);
   else {
     $res = []; $albums = itunes('lookup', ['id' => $id, 'entity' => 'album', 'limit' => 200]);
-    save_results($pdo, $albums); $n = 0;
+    save_results($pdo, $albums);
     foreach ($albums as $a) {
-      if (($a['wrapperType'] ?? '') !== 'collection' || $n++ >= 60) continue;
+      if (($a['wrapperType'] ?? '') !== 'collection') continue;
       $res = array_merge($res, itunes('lookup', ['id' => $a['collectionId'], 'entity' => 'song']));
     }
   }
@@ -104,8 +131,10 @@ switch ($action) {
     $b = body(); $type = $b['type'] ?? ''; $id = (int)($b['id'] ?? 0);
     if (!in_array($type, ['track', 'collection', 'artist']) || !$id) out(['error' => 'bad request'], 400);
     $ids = tracks_for($pdo, $type, $id);
-    $st = $pdo->prepare("INSERT INTO queue (track_id) VALUES (?) ON DUPLICATE KEY UPDATE
-      status=IF(status='failed','queued',status), progress=IF(status='failed',0,progress), message=IF(status='failed','',message)");
+    $st = $pdo->prepare("INSERT INTO queue (track_id) VALUES (?) ON CONFLICT(track_id) DO UPDATE SET
+      progress=CASE WHEN status='failed' THEN 0 ELSE progress END,
+      message=CASE WHEN status='failed' THEN '' ELSE message END,
+      status=CASE WHEN status='failed' THEN 'queued' ELSE status END");
     foreach ($ids as $t) $st->execute([$t]);
     out(['added' => count($ids), 'track_ids' => $ids]);
   }
@@ -116,7 +145,7 @@ switch ($action) {
     $c = $pdo->prepare("SELECT COUNT(*) FROM queue q $w"); $c->execute($p); $total = (int)$c->fetchColumn();
     $off = ($page - 1) * $pp;
     $s = $pdo->prepare("SELECT q.id,q.status,q.progress,q.message,q.updated_at,t.track_id,t.name,t.artist_name,t.collection_name,t.artwork,
-      f.bale_message_id,f.telegram_message_id FROM queue q JOIN tracks t ON t.track_id=q.track_id
+      f.bale_message_id,f.telegram_message_id,f.telegram_file_id FROM queue q JOIN tracks t ON t.track_id=q.track_id
       LEFT JOIN track_files f ON f.track_id=q.track_id $w ORDER BY q.id DESC LIMIT $pp OFFSET $off");
     $s->execute($p); $rows = $s->fetchAll();
     foreach ($rows as &$r) {
@@ -140,23 +169,30 @@ switch ($action) {
   // ---------- bot endpoints (X-API-Key) ----------
   case 'queue_next': {
     need_key();
-    $pdo->exec("UPDATE queue SET status='queued' WHERE status NOT IN ('queued','done','failed') AND updated_at < NOW() - INTERVAL 30 MINUTE");
-    $pdo->beginTransaction();
-    $q = $pdo->query("SELECT * FROM queue WHERE status='queued' ORDER BY id LIMIT 1 FOR UPDATE")->fetch();
-    if (!$q) { $pdo->commit(); out(['job' => null]); }
-    $pdo->prepare("UPDATE queue SET status='searching', progress=5, message='Picked up by bot', attempts=attempts+1 WHERE id=?")->execute([$q['id']]);
-    $pdo->commit();
+    $pdo->exec('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      $pdo->exec("UPDATE queue SET status='queued' WHERE status NOT IN ('queued','done','failed') AND datetime(updated_at) < datetime('now','-30 minutes')");
+      $q = $pdo->query("SELECT * FROM queue WHERE status='queued' ORDER BY id LIMIT 1")->fetch();
+      if (!$q) { $pdo->exec('COMMIT'); out(['job' => null]); }
+      $pdo->prepare("UPDATE queue SET status='searching', progress=5, message='Picked up by bot', attempts=attempts+1 WHERE id=?")->execute([$q['id']]);
+      $pdo->exec('COMMIT');
+    } catch (Throwable $e) {
+      $pdo->exec('ROLLBACK');
+      throw $e;
+    }
     $s = $pdo->prepare('SELECT * FROM tracks WHERE track_id=?'); $s->execute([$q['track_id']]);
     $t = $s->fetch(); unset($t['raw']); out(['job' => ['queue_id' => $q['id'], 'track' => $t]]);
   }
   case 'queue_progress': { // POST {id, status, progress, message}
     need_key(); $b = body();
+    $statuses = ['queued', 'searching', 'downloading', 'lyrics', 'tagging', 'uploading_bale', 'uploading_telegram', 'done', 'failed'];
+    if ((int)($b['id'] ?? 0) < 1 || !in_array($b['status'] ?? '', $statuses, true)) out(['error' => 'bad request'], 400);
     $pdo->prepare('UPDATE queue SET status=?, progress=?, message=? WHERE id=?')
-      ->execute([$b['status'], (int)$b['progress'], mb_substr($b['message'] ?? '', 0, 500), (int)$b['id']]);
+      ->execute([$b['status'], max(0, min(100, (int)($b['progress'] ?? 0))), mb_substr($b['message'] ?? '', 0, 500), (int)$b['id']]);
     out(['ok' => true]);
   }
-  case 'save_files': { // POST partial {track_id, youtube_id, file_name, file_size, bale_message_id, telegram_message_id, lyrics_*}
-    need_key(); $b = body(); $allowed = ['track_id', 'youtube_id', 'file_name', 'file_size', 'bale_message_id', 'telegram_message_id', 'lyrics_synced', 'lyrics_plain', 'lyrics_source'];
+  case 'save_files': { // POST partial {track_id, youtube_id, file_name, file_size, bale_message_id, telegram_message_id, telegram_file_id, lyrics_*}
+    need_key(); $b = body(); $allowed = ['track_id', 'youtube_id', 'file_name', 'file_size', 'bale_message_id', 'telegram_message_id', 'telegram_file_id', 'lyrics_synced', 'lyrics_plain', 'lyrics_source'];
     $row = array_intersect_key($b, array_flip($allowed));
     if (empty($row['track_id'])) out(['error' => 'track_id required'], 400);
     upsert($pdo, 'track_files', $row); out(['ok' => true]);

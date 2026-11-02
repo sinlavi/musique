@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Lyra – search, queue, download</title>
+<title>mman – search, queue, download</title>
 <style>
 :root{--bg:#000;--fg:#ededed;--mut:#8a8a8a;--line:#262626;--card:#0d0d0d;--ok:#6ee7a0;--err:#ff6b6b}
 *{box-sizing:border-box}
@@ -41,13 +41,13 @@ dialog::backdrop{background:rgba(0,0,0,.75)}
 .empty{color:var(--mut);text-align:center;padding:40px 0}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:#000;padding:8px 16px;border-radius:10px;display:none}
 </style></head><body>
-<header><div class="logo" onclick="go('search')">lyra</div>
+<header><div class="logo" onclick="go('search')">mman</div>
 <nav><button id="n-search" class="on" onclick="go('search')">Search</button><button id="n-queue" onclick="go('queue')">Queue</button></nav></header>
 <main id="app"></main>
 <dialog id="dlg"><div id="dlgBody"></div><button class="btn ghost" onclick="dlg.close()">Close</button></dialog>
 <div id="toast"></div>
 <script>
-const API='../api/index.php', $=s=>document.querySelector(s), dlg=$('#dlg');
+const API='https://mman.ir/api/index.php', $=s=>document.querySelector(s), dlg=$('#dlg');
 let entity='song', view='search', qpage=1, timer=null, lastQuery='';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const j=(a,p={},o)=>fetch(`${API}?action=${a}&`+new URLSearchParams(p),o).then(r=>r.json());

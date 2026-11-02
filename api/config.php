@@ -1,8 +1,8 @@
 <?php
 return [
-  'db' => ['dsn' => 'mysql:host=127.0.0.1;dbname=musicdb;charset=utf8mb4', 'user' => 'root', 'pass' => ''],
-  'api_key' => 'CHANGE_ME_BOT_SECRET',      // used by the Python bot (X-API-Key)
-  'country' => 'us',
-  'bale_channel_username' => '',            // e.g. "mychannel" -> https://ble.ir/mychannel/<id>
-  'telegram_channel_username' => '',        // e.g. "mychannel" -> https://t.me/mychannel/<id>
+  'sqlite_path' => getenv('SQLITE_PATH') ?: dirname(__DIR__, 2) . '/mman-data/mman.sqlite',
+  'api_key' => getenv('API_KEY') ?: '',
+  'country' => getenv('ITUNES_COUNTRY') ?: 'us',
+  'bale_channel_username' => getenv('BALE_CHANNEL_USERNAME') ?: '',
+  'telegram_channel_username' => getenv('TELEGRAM_CHANNEL_USERNAME') ?: '',
 ];

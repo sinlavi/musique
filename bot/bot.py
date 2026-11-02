@@ -1,21 +1,18 @@
-"""Queue worker: YouTube Music -> mp3 (+tags, lyrics) -> Bale channel -> Telegram channel.
+"""mman queue worker: YouTube Music -> mp3 (+tags, lyrics) -> Bale channel -> Telegram channel.
 Needs ffmpeg installed. Put your exported YouTube cookies in cookies.txt next to this file."""
-import asyncio, os, re, shutil, tempfile
+import argparse, asyncio, os, re, shutil, tempfile
 from pathlib import Path
 import requests, yt_dlp
 from ytmusicapi import YTMusic
 from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TRCK, TPOS, TDRC, TCON, APIC, USLT, SYLT
 from balethon import Client as Bale
-from telethon import TelegramClient
-from telethon.tl.types import DocumentAttributeAudio
 
-API = os.getenv("API_URL", "https://example.com/api/index.php")
-KEY = os.getenv("API_KEY", "CHANGE_ME_BOT_SECRET")
+API = os.getenv("API_URL", "https://mman.ir/api/index.php").strip()
+KEY = os.getenv("API_KEY", "")
 COOKIES = os.getenv("COOKIES", "cookies.txt")
 BALE_TOKEN, BALE_CHAT = os.getenv("BALE_TOKEN"), os.getenv("BALE_CHAT")            # chat: channel id or @username
-TG_API_ID, TG_API_HASH = int(os.getenv("TG_API_ID", 0)), os.getenv("TG_API_HASH")
 TG_BOT_TOKEN, TG_CHAT = os.getenv("TG_BOT_TOKEN"), os.getenv("TG_CHAT")          # bot must be channel admin
-UA = {"User-Agent": "music-queue-bot/1.0"}
+UA = {"User-Agent": "mman-queue-bot/1.0"}
 
 def api(action, data=None):
     r = requests.post(f"{API}?action={action}", json=data or {}, headers={"X-API-Key": KEY}, timeout=30)
@@ -96,8 +93,35 @@ def tag(path, t, synced, plain, cover):
 
 def safe(s): return re.sub(r'[\\/:*?"<>|]', "_", s).strip()[:120]
 
+def upload_telegram(path, caption, track):
+    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendAudio"
+    data = {
+        "chat_id": TG_CHAT,
+        "caption": caption,
+        "title": track["name"],
+        "performer": track["artist_name"],
+    }
+    if track["duration_ms"]:
+        data["duration"] = max(1, int(track["duration_ms"]) // 1000)
+    with open(path, "rb") as audio:
+        response = requests.post(
+            url,
+            data=data,
+            files={"audio": (path.name, audio, "audio/mpeg")},
+            timeout=(30, 600),
+        )
+    result = response.json()
+    if not response.ok or not result.get("ok"):
+        raise RuntimeError(f"Telegram upload failed: {result.get('description', 'unknown error')}")
+    message = result.get("result", {})
+    message_id = message.get("message_id")
+    file_id = message.get("audio", {}).get("file_id")
+    if not message_id or not file_id:
+        raise RuntimeError("Telegram upload response is missing the message ID or audio file ID")
+    return {"message_id": message_id, "file_id": file_id}
+
 # ---------- Job ----------
-async def process(job, yt, bale, tg):
+async def process(job, yt, bale):
     qid, t = job["queue_id"], job["track"]; tid = t["track_id"]
     tmp = tempfile.mkdtemp(prefix="trk_")
     try:
@@ -107,7 +131,7 @@ async def process(job, yt, bale, tg):
 
         last = {"p": 0}
         def hook(d):
-            if d["status"] == "downloading" and d.get("total_bytes") or d.get("total_bytes_estimate"):
+            if d["status"] == "downloading" and (d.get("total_bytes") or d.get("total_bytes_estimate")):
                 tot = d.get("total_bytes") or d.get("total_bytes_estimate")
                 pct = 10 + int(d["downloaded_bytes"] / tot * 40)
                 if pct >= last["p"] + 5: last["p"] = pct; progress(qid, "downloading", pct, "Downloading audio")
@@ -134,22 +158,54 @@ async def process(job, yt, bale, tg):
         api("save_files", {"track_id": tid, "bale_message_id": m.id})
 
         progress(qid, "uploading_telegram", 85, "Uploading to Telegram")
-        m = await tg.send_file(TG_CHAT, str(final), caption=caption, thumb=None,
-            attributes=[DocumentAttributeAudio(duration=(t["duration_ms"] or 0) // 1000, title=t["name"], performer=t["artist_name"])])
-        api("save_files", {"track_id": tid, "telegram_message_id": m.id})
+        telegram = await asyncio.to_thread(upload_telegram, final, caption, t)
+        api("save_files", {
+            "track_id": tid,
+            "telegram_message_id": telegram["message_id"],
+            "telegram_file_id": telegram["file_id"],
+        })
         progress(qid, "done", 100, "Done")
+        return True
     except Exception as e:
         print("failed:", e); progress(qid, "failed", 0, str(e))
+        return False
     finally: shutil.rmtree(tmp, ignore_errors=True)
 
-async def main():
-    yt = YTMusic()
-    bale = Bale(BALE_TOKEN); await bale.connect()
-    tg = TelegramClient("tg_session", TG_API_ID, TG_API_HASH); await tg.start(bot_token=TG_BOT_TOKEN)
-    while True:
-        try: job = (await asyncio.to_thread(api, "queue_next")).get("job")
-        except Exception as e: print("queue error:", e); job = None
-        if job: await process(job, yt, bale, tg)
-        else: await asyncio.sleep(5)
+def validate_config():
+    required = {
+        "API_URL": API, "API_KEY": KEY, "BALE_TOKEN": BALE_TOKEN, "BALE_CHAT": BALE_CHAT,
+        "TG_BOT_TOKEN": TG_BOT_TOKEN, "TG_CHAT": TG_CHAT,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing: raise RuntimeError("Missing required configuration: " + ", ".join(missing))
+    if not Path(COOKIES).is_file(): raise RuntimeError(f"YouTube cookies file not found: {COOKIES}")
 
-if __name__ == "__main__": asyncio.run(main())
+async def main(max_jobs=0, poll_seconds=5):
+    validate_config()
+    yt = YTMusic()
+    bale = Bale(BALE_TOKEN)
+    processed = 0
+    failures = 0
+    await bale.connect()
+    try:
+        while max_jobs <= 0 or processed < max_jobs:
+            try: job = (await asyncio.to_thread(api, "queue_next")).get("job")
+            except Exception as e:
+                print("queue error:", e)
+                if max_jobs > 0: raise
+                await asyncio.sleep(poll_seconds)
+                continue
+            if not job: break
+            if not await process(job, yt, bale): failures += 1
+            processed += 1
+    finally:
+        await bale.disconnect()
+    if max_jobs > 0 and failures:
+        raise RuntimeError(f"{failures} queue job(s) failed")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Process queued tracks and upload them to configured channels.")
+    parser.add_argument("--max-jobs", type=int, default=0, help="Exit after this many jobs; 0 polls forever")
+    parser.add_argument("--poll-seconds", type=int, default=5, help="Delay between queue checks in continuous mode")
+    args = parser.parse_args()
+    asyncio.run(main(max(0, args.max_jobs), max(1, args.poll_seconds)))

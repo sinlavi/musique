@@ -2,5 +2,4 @@ requests
 yt-dlp
 ytmusicapi
 mutagen
-telethon
 balethon
