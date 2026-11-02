@@ -17,16 +17,38 @@ CREATE TABLE IF NOT EXISTS tracks (
 );
 CREATE INDEX IF NOT EXISTS tracks_collection_id ON tracks(collection_id);
 CREATE INDEX IF NOT EXISTS tracks_artist_id ON tracks(artist_id);
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
 CREATE TABLE IF NOT EXISTS queue (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, track_id INTEGER NOT NULL UNIQUE,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  track_id INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','searching','downloading','lyrics','tagging','uploading_bale','uploading_telegram','done','failed')),
   progress INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100), message TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, track_id)
 );
 CREATE INDEX IF NOT EXISTS queue_status_id ON queue(status, id);
+CREATE TABLE IF NOT EXISTS favorites (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(user_id, track_id)
+);
 CREATE TABLE IF NOT EXISTS track_files (
   track_id INTEGER PRIMARY KEY, youtube_id TEXT, file_name TEXT, file_size INTEGER,
-  bale_message_id INTEGER, telegram_message_id INTEGER, telegram_file_id TEXT,
+  bale_message_id INTEGER, bale_file_id TEXT, telegram_message_id INTEGER, telegram_file_id TEXT,
   lyrics_synced TEXT, lyrics_plain TEXT, lyrics_source TEXT,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

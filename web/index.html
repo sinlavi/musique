@@ -1,108 +1,151 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mman – search, queue, download</title>
+<meta name="theme-color" content="#f3f0e8">
+<title>mman — music library</title>
 <style>
-:root{--bg:#000;--fg:#ededed;--mut:#8a8a8a;--line:#262626;--card:#0d0d0d;--ok:#6ee7a0;--err:#ff6b6b}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-a{color:inherit}
-header{display:flex;justify-content:space-between;align-items:center;max-width:820px;margin:0 auto;padding:18px 16px}
-.logo{font-size:22px;font-weight:700;letter-spacing:-.5px;cursor:pointer}
-nav button{background:none;border:0;color:var(--mut);font:inherit;cursor:pointer;margin-left:16px;padding:4px 0}
-nav button.on{color:var(--fg);border-bottom:1px solid var(--fg)}
-main{max-width:820px;margin:0 auto;padding:0 16px 80px}
-.hero{text-align:center;margin:9vh 0 28px}
-.hero h1{font-size:34px;margin:0 0 6px;letter-spacing:-1px}.hero p{color:var(--mut);margin:0}
-.box{display:flex;gap:8px;border:1px solid var(--line);border-radius:14px;padding:6px;background:var(--card)}
-.box:focus-within{border-color:#555}
-.box input{flex:1;background:none;border:0;color:var(--fg);font:inherit;font-size:17px;padding:10px 12px;outline:0;min-width:0}
-.box button,.btn{background:var(--fg);color:#000;border:0;border-radius:9px;padding:8px 16px;font:inherit;font-weight:600;cursor:pointer}
-.btn.ghost{background:none;color:var(--fg);border:1px solid var(--line)}
-.btn:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:2px}
-.tabs{display:flex;gap:6px;margin:12px 0 20px;justify-content:center}
-.tabs button{background:none;border:1px solid var(--line);color:var(--mut);border-radius:20px;padding:4px 14px;font:inherit;cursor:pointer}
-.tabs button.on{color:#000;background:var(--fg);border-color:var(--fg)}
-.row{display:flex;align-items:center;gap:14px;padding:10px 6px;border-bottom:1px solid var(--line)}
-.row img{width:52px;height:52px;border-radius:6px;object-fit:cover;background:#1a1a1a;flex:none}
-.row .t{flex:1;min-width:0;cursor:pointer}.row .t b,.row .t span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .t span{color:var(--mut);font-size:13px}
-.row .acts{display:flex;gap:6px;flex:none}
-.detail{display:flex;gap:18px;align-items:flex-end;margin:10px 0 18px}.detail img{width:140px;height:140px;border-radius:10px}
-.detail h2{margin:0}.detail p{margin:2px 0 10px;color:var(--mut)}
-.bar{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--fg);transition:width .4s}
-.bar.done i{background:var(--ok)}.bar.failed i{background:var(--err)}
-.st{font-size:13px;color:var(--mut)}.links a{margin-right:10px;font-size:13px}
-.pager{display:flex;justify-content:center;gap:12px;align-items:center;margin-top:18px;color:var(--mut)}
-dialog{background:#0d0d0d;color:var(--fg);border:1px solid var(--line);border-radius:14px;max-width:560px;width:92vw;padding:20px}
-dialog::backdrop{background:rgba(0,0,0,.75)}
-.lyr{max-height:60vh;overflow:auto;white-space:pre-wrap;font-size:18px;line-height:1.7;margin:12px 0}
-.lyr p{margin:0}.lyr small{color:var(--mut);font-size:11px;margin-right:10px;font-variant-numeric:tabular-nums}
-.empty{color:var(--mut);text-align:center;padding:40px 0}
-#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:#000;padding:8px 16px;border-radius:10px;display:none}
-</style></head><body>
-<header><div class="logo" onclick="go('search')">mman</div>
-<nav><button id="n-search" class="on" onclick="go('search')">Search</button><button id="n-queue" onclick="go('queue')">Queue</button></nav></header>
-<main id="app"></main>
-<dialog id="dlg"><div id="dlgBody"></div><button class="btn ghost" onclick="dlg.close()">Close</button></dialog>
-<div id="toast"></div>
+:root{color-scheme:light;--paper:#f3f0e8;--panel:#fffdf8;--ink:#252c26;--muted:#77796f;--line:#d9d4c7;--green:#365d48;--green-dark:#244331;--gold:#a27430;--red:#984d42;--shadow:0 3px 14px #2625180c}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Georgia,"Times New Roman",serif}
+button,input,select{font:inherit;color:inherit}button{cursor:pointer}a{color:inherit}
+.shell{max-width:1100px;margin:auto;padding:0 24px 120px}.masthead{display:flex;align-items:center;justify-content:space-between;border-bottom:3px double var(--line);padding:20px 0 15px}
+.brand{font-size:30px;font-weight:bold;letter-spacing:-1px;color:var(--green-dark);cursor:pointer}.brand small{font-size:11px;display:block;font-weight:normal;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+nav{display:flex;gap:6px;flex-wrap:wrap}nav button,.tool{border:1px solid transparent;background:transparent;padding:8px 12px;color:var(--muted)}
+nav button.active,nav button:hover{border-color:var(--line);color:var(--ink);background:var(--panel)}.account{font:13px Arial,sans-serif;color:var(--muted);white-space:nowrap}
+main{padding-top:27px}.intro{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:20px}.intro h1{font-size:29px;font-weight:normal;margin:0 0 4px}.intro p{margin:0;color:var(--muted)}
+.searchbar{display:flex;gap:8px;margin:18px 0 12px}.searchbar input,.auth input{width:100%;padding:11px 12px;border:1px solid var(--line);background:var(--panel);border-radius:3px}
+.btn{border:1px solid var(--green);background:var(--green);color:white;padding:9px 14px;border-radius:3px}.btn:hover{background:var(--green-dark)}.btn.secondary{background:transparent;color:var(--green)}.btn.danger{border-color:var(--red);background:transparent;color:var(--red)}.btn:disabled{opacity:.55;cursor:wait}
+.tabs,.filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0}.tabs button{border:0;border-bottom:2px solid transparent;background:none;padding:7px 10px;color:var(--muted)}.tabs button.active{border-color:var(--green);color:var(--green-dark)}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:var(--muted);font-size:13px}
+.track{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 4px;border-bottom:1px solid var(--line)}
+.track img{width:52px;height:52px;object-fit:cover;background:#e6e1d5}.track-info{min-width:0}.track-info strong,.track-info span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.track-info span{color:var(--muted);font-size:13px}
+.actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.actions .btn{font:13px Arial,sans-serif;padding:6px 9px}.plain-btn{border:0;background:none;color:var(--green);font-size:18px;padding:3px 7px}.plain-btn.fav{color:var(--gold)}
+.artist-head{display:flex;align-items:center;gap:20px;background:var(--panel);border:1px solid var(--line);padding:18px;margin:18px 0}.artist-head img{width:120px;height:120px;object-fit:cover}.artist-head h2{margin:0;font-size:25px;font-weight:normal}
+.status{font:12px Arial,sans-serif;color:var(--muted);margin-top:5px}.progress{height:5px;background:#e5e0d4;margin-top:5px}.progress i{height:100%;display:block;background:var(--green)}.progress.failed i{background:var(--red)}
+.auth{max-width:460px;margin:34px auto;background:var(--panel);border:1px solid var(--line);padding:22px;box-shadow:var(--shadow)}.auth h2{font-weight:normal;margin:0 0 12px}.auth form{display:grid;gap:10px}.auth-switch{border:0;background:none;text-decoration:underline;color:var(--green);padding:10px 0 0}
+.empty{padding:42px 12px;text-align:center;color:var(--muted);border-bottom:1px solid var(--line)}.pager{display:flex;justify-content:center;align-items:center;gap:14px;padding:18px}
+.player{position:fixed;bottom:0;left:0;right:0;background:#e8e3d6;border-top:1px solid #c8c0af;box-shadow:0 -4px 18px #241e1410}.player-inner{max-width:1100px;margin:auto;padding:10px 24px;display:grid;grid-template-columns:minmax(140px,1fr) minmax(240px,2fr) auto;gap:18px;align-items:center}.now-playing{overflow:hidden}.now-playing strong,.now-playing span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.now-playing span{font-size:12px;color:var(--muted)}audio{width:100%;height:34px}.player-close{border:0;background:none;color:var(--muted)}
+dialog{max-width:620px;width:calc(100% - 30px);border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:22px}dialog::backdrop{background:#24271f88}.lyrics{white-space:pre-wrap;max-height:60vh;overflow:auto;line-height:1.9}
+#toast{position:fixed;bottom:86px;left:50%;transform:translateX(-50%);background:var(--ink);color:white;padding:9px 16px;display:none;box-shadow:var(--shadow)}
+@media(max-width:680px){.shell{padding:0 14px 110px}.masthead{align-items:flex-start;gap:12px;flex-wrap:wrap}.brand{font-size:25px}.player-inner{grid-template-columns:1fr auto;gap:5px 12px;padding:8px 14px}.now-playing{grid-column:1}.player audio{grid-column:1/-1;grid-row:2}.player-close{grid-column:2;grid-row:1}.track{grid-template-columns:44px minmax(0,1fr)}.track img{width:44px;height:44px}.actions{grid-column:2;justify-content:flex-start}.intro h1{font-size:25px}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="masthead">
+    <div class="brand" onclick="navigate('discover')">mman<small>your music, in order</small></div>
+    <nav>
+      <button id="nav-discover" onclick="navigate('discover')">Discover</button>
+      <button id="nav-queue" onclick="navigate('queue')">My queue</button>
+      <button id="nav-favorites" onclick="navigate('favorites')">Favorites</button>
+    </nav>
+    <div class="account" id="account"></div>
+  </header>
+  <main id="app"></main>
+</div>
+<section class="player" id="player" hidden>
+  <div class="player-inner">
+    <div class="now-playing"><strong id="player-title">Nothing playing</strong><span id="player-artist"></span></div>
+    <audio id="audio" controls preload="none"></audio>
+    <button class="player-close" onclick="stopPlayer()" aria-label="Close player">✕</button>
+  </div>
+</section>
+<dialog id="dialog"><div id="dialog-content"></div><p><button class="btn secondary" onclick="dialog.close()">Close</button></p></dialog>
+<div id="toast" role="status"></div>
 <script>
-const API='https://mman.ir/api/index.php', $=s=>document.querySelector(s), dlg=$('#dlg');
-let entity='song', view='search', qpage=1, timer=null, lastQuery='';
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const j=(a,p={},o)=>fetch(`${API}?action=${a}&`+new URLSearchParams(p),o).then(r=>r.json());
-const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200)};
-const mins=ms=>ms?Math.floor(ms/60000)+':'+String(Math.floor(ms/1000)%60).padStart(2,'0'):'';
-
-function go(v){view=v;clearInterval(timer);['search','queue'].forEach(x=>$('#n-'+x).classList.toggle('on',x===v));
-  if(v==='queue'){renderQueue();timer=setInterval(loadQueue,3000)}else renderSearch()}
-
-function renderSearch(){ $('#app').innerHTML=`
- <div class="hero"><h1>Find it. Queue it. Keep it.</h1><p>Search any song, album or artist.</p></div>
- <form class="box" onsubmit="event.preventDefault();doSearch()"><input id="q" placeholder="Search music" value="${esc(lastQuery)}" autofocus><button>Search</button></form>
- <div class="tabs">${[['song','Songs'],['album','Albums'],['musicArtist','Artists']].map(([k,l])=>`<button type="button" class="${k===entity?'on':''}" onclick="entity='${k}';renderSearch();if(lastQuery)doSearch()">${l}</button>`).join('')}</div>
- <div id="res"></div>`;}
-
-async function doSearch(){ lastQuery=$('#q').value.trim(); if(!lastQuery)return;
-  $('#res').innerHTML='<div class="empty">Searching…</div>';
-  const d=await j('search',{term:lastQuery,entity});
-  $('#res').innerHTML=(d.results||[]).map(rowHtml).join('')||'<div class="empty">No results. Try another spelling.</div>';}
-
-function rowHtml(r){
-  if(r.wrapperType==='artist') return `<div class="row"><img alt=""><div class="t" onclick="openArtist(${r.artistId})"><b>${esc(r.artistName)}</b><span>${esc(r.primaryGenreName)}</span></div>
-   <div class="acts"><button class="btn ghost" onclick="openArtist(${r.artistId})">Albums</button><button class="btn" onclick="add('artist',${r.artistId},this)">Queue all</button></div></div>`;
-  if(r.wrapperType==='collection') return `<div class="row"><img src="${esc(r.artwork)}" alt=""><div class="t" onclick="openAlbum(${r.collectionId})"><b>${esc(r.collectionName)}</b><span>${esc(r.artistName)} · ${r.trackCount} tracks · ${(r.releaseDate||'').slice(0,4)}</span></div>
-   <div class="acts"><button class="btn ghost" onclick="openAlbum(${r.collectionId})">Tracks</button><button class="btn" onclick="add('collection',${r.collectionId},this)">Queue album</button></div></div>`;
-  return `<div class="row"><img src="${esc(r.artwork)}" alt=""><div class="t"><b>${esc(r.trackName)}</b><span>${esc(r.artistName)} · ${esc(r.collectionName)} · ${mins(r.trackTimeMillis)}</span></div>
-   <div class="acts"><button class="btn ghost" onclick="lyrics(${r.trackId},'${esc(r.trackName).replace(/'/g,'')}')">Lyrics</button><button class="btn" onclick="add('track',${r.trackId},this)">Download</button></div></div>`;}
-
-async function openAlbum(id){ $('#app').innerHTML='<div class="empty">Loading…</div>';
-  const d=(await j('lookup',{id,entity:'song'})).results, c=d[0], ts=d.filter(x=>x.wrapperType==='track');
-  $('#app').innerHTML=`<button class="btn ghost" onclick="renderSearch();doSearch()">Back</button>
-  <div class="detail"><img src="${esc(c.artwork)}" alt=""><div><h2>${esc(c.collectionName)}</h2><p>${esc(c.artistName)} · ${ts.length} tracks</p><button class="btn" onclick="add('collection',${id},this)">Download album</button></div></div>`+ts.map(rowHtml).join('');}
-
-async function openArtist(id){ $('#app').innerHTML='<div class="empty">Loading…</div>';
-  const d=(await j('lookup',{id,entity:'album'})).results, a=d[0], al=d.filter(x=>x.wrapperType==='collection');
-  $('#app').innerHTML=`<button class="btn ghost" onclick="renderSearch();doSearch()">Back</button>
-  <div class="detail"><div><h2>${esc(a.artistName)}</h2><p>${al.length} albums</p><button class="btn" onclick="add('artist',${id},this)">Download everything</button></div></div>`+al.map(rowHtml).join('');}
-
-async function add(type,id,btn){ btn.disabled=true; const old=btn.textContent; btn.textContent='Adding…';
-  try{const d=await j('queue_add',{},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,id})});
-    toast(d.error?'Could not add: '+d.error:`Queued ${d.added} track${d.added==1?'':'s'}`);btn.textContent='Queued'}
-  catch(e){toast('Could not reach the server');btn.textContent=old;btn.disabled=false}}
-
-async function lyrics(id,name){ $('#dlgBody').innerHTML=`<h3>${name}</h3><div class="lyr">Loading…</div>`; dlg.showModal();
-  const d=await j('lyrics',{track_id:id}); let h='';
-  if(d.lyrics_synced) h=d.lyrics_synced.split('\n').map(l=>{const m=l.match(/^\[(\d+:\d+)[^\]]*\](.*)/);return m?`<p><small>${m[1]}</small>${esc(m[2])}</p>`:''}).join('');
-  else if(d.lyrics_plain) h=esc(d.lyrics_plain); else h='No lyrics found for this track.';
-  $('#dlgBody').innerHTML=`<h3>${name}</h3><small style="color:var(--mut)">${d.lyrics_synced?'Synced':'Plain'}${d.lyrics_source?' · '+d.lyrics_source:''}</small><div class="lyr">${h}</div>`;}
-
-function renderQueue(){ $('#app').innerHTML='<h2 style="margin-top:20px">Queue</h2><div id="ql"></div><div class="pager" id="pg"></div>'; loadQueue(); }
-async function loadQueue(){ const d=await j('queue_list',{page:qpage,per_page:15}); if(view!=='queue')return;
-  $('#ql').innerHTML=d.items.map(i=>`<div class="row"><img src="${esc(i.artwork)}" alt=""><div class="t" style="cursor:default"><b>${esc(i.name)}</b><span>${esc(i.artist_name)}</span>
-   <div class="bar ${i.status}"><i style="width:${i.progress}%"></i></div><div class="st">${i.status.replace('_',' ')} · ${i.progress}%${i.message&&i.status==='failed'?' · '+esc(i.message):''}</div></div>
-   <div class="acts links">${i.bale_url?`<a href="${i.bale_url}" target="_blank" rel="noopener">Bale</a>`:''}${i.telegram_url?`<a href="${i.telegram_url}" target="_blank" rel="noopener">Telegram</a>`:''}
-   <button class="btn ghost" onclick="lyrics(${i.track_id},'${esc(i.name).replace(/'/g,'')}')">Lyrics</button></div></div>`).join('')||'<div class="empty">Nothing queued yet. Search for a track and press Download.</div>';
-  $('#pg').innerHTML=d.pages>1?`<button class="btn ghost" ${qpage<=1?'disabled':''} onclick="qpage--;loadQueue()">Prev</button>Page ${d.page} of ${d.pages}<button class="btn ghost" ${qpage>=d.pages?'disabled':''} onclick="qpage++;loadQueue()">Next</button>`:'';}
-renderSearch();
-</script></body></html>
+const API='/api/index.php', $=selector=>document.querySelector(selector), app=$('#app'), dialog=$('#dialog');
+let user=null, page='discover', entity='song', query='', queuePage=1, queueStatus='', favoritesPage=1, pollTimer=null;
+const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const duration=ms=>ms?`${Math.floor(ms/60000)}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}`:'';
+async function api(action,params={},options={}){
+  const url=`${API}?action=${encodeURIComponent(action)}&${new URLSearchParams(params)}`;
+  const response=await fetch(url,{credentials:'same-origin',...options});
+  let data;try{data=await response.json()}catch{throw Error(`Server returned HTTP ${response.status}`)}
+  if(!response.ok)throw Error(data.message||data.error||`Request failed (${response.status})`);
+  return data;
+}
+function toast(message){const node=$('#toast');node.textContent=message;node.style.display='block';setTimeout(()=>node.style.display='none',2600)}
+function header(){['discover','queue','favorites'].forEach(id=>$('#nav-'+id).classList.toggle('active',page===id));$('#account').innerHTML=user?`${escapeHtml(user.email)} · <button class="plain-btn" onclick="logout()">Sign out</button>`:`<button class="plain-btn" onclick="showAuth()">Sign in</button>`;}
+function navigate(next){page=next;clearInterval(pollTimer);header();if(next==='queue'){renderQueue();pollTimer=setInterval(loadQueue,4000)}else if(next==='favorites')loadFavorites();else renderDiscover()}
+function renderDiscover(){
+ app.innerHTML=`<section class="intro"><h1>Discover music</h1><p>Search the iTunes catalogue, inspect albums and artists, and build your personal queue.</p></section>
+ <form class="searchbar" onsubmit="event.preventDefault();searchMusic()"><input id="query" placeholder="Artist, track, or album" value="${escapeHtml(query)}" autocomplete="off"><button class="btn">Search</button></form>
+ <div class="tabs">${[['song','Songs'],['album','Albums'],['musicArtist','Artists']].map(([key,label])=>`<button class="${entity===key?'active':''}" onclick="setEntity('${key}')">${label}</button>`).join('')}</div>
+ <div id="results"></div>`;
+}
+async function setEntity(next){entity=next;renderDiscover();if(query)await searchMusic()}
+async function searchMusic(){
+ query=$('#query').value.trim();if(!query)return;
+ $('#results').innerHTML='<div class="empty">Searching catalogue…</div>';
+ try{const data=await api('search',{term:query,entity,limit:50});$('#results').innerHTML=(data.results||[]).map(resultRow).join('')||'<div class="empty">No results found.</div>'}
+ catch(error){$('#results').innerHTML=`<div class="empty">${escapeHtml(error.message)}</div>`}
+}
+function resultRow(item){
+ if(item.wrapperType==='artist')return `<article class="track"><img alt="" src="${escapeHtml(item.artwork||'')}"><div class="track-info"><strong>${escapeHtml(item.artistName)}</strong><span>${escapeHtml(item.primaryGenreName||'Artist')}</span></div><div class="actions"><button class="btn secondary" onclick="openArtist(${Number(item.artistId)})">Albums</button><button class="btn" onclick="queueAdd('artist',${Number(item.artistId)})">Queue artist</button></div></article>`;
+ if(item.wrapperType==='collection')return `<article class="track"><img alt="" src="${escapeHtml(item.artwork||'')}"><div class="track-info"><strong>${escapeHtml(item.collectionName)}</strong><span>${escapeHtml(item.artistName)} · ${Number(item.trackCount)||0} tracks · ${escapeHtml((item.releaseDate||'').slice(0,4))}</span></div><div class="actions"><button class="btn secondary" onclick="openAlbum(${Number(item.collectionId)})">View album</button><button class="btn" onclick="queueAdd('collection',${Number(item.collectionId)})">Queue album</button></div></article>`;
+ return trackRow({track_id:item.trackId,name:item.trackName,artist_name:item.artistName,collection_name:item.collectionName,artwork:item.artwork,duration_ms:item.trackTimeMillis},true);
+}
+function trackRow(track,actions=false){
+ const id=Number(track.track_id);
+ return `<article class="track"><img alt="" src="${escapeHtml(track.artwork||'')}"><div class="track-info"><strong>${escapeHtml(track.name)}</strong><span>${escapeHtml(track.artist_name)}${track.collection_name?' · '+escapeHtml(track.collection_name):''}${track.duration_ms?' · '+duration(track.duration_ms):''}</span></div><div class="actions">${track.bale_stream_url?`<button class="btn secondary" onclick="${escapeHtml(`playTrack(${JSON.stringify(track.bale_stream_url)},${JSON.stringify(track.name)},${JSON.stringify(track.artist_name)})`)}">Play</button>`:''}<button class="plain-btn fav" title="Add to favorites" onclick="toggleFavorite(${id})">♡</button>${actions?`<button class="btn" onclick="queueAdd('track',${id})">Queue</button><button class="btn secondary" onclick="${escapeHtml(`showLyrics(${id},${JSON.stringify(track.name)})`)}">Lyrics</button>`:''}</div></article>`;
+}
+async function openAlbum(id){
+ app.innerHTML='<div class="empty">Loading album…</div>';
+ try{const {results=[]}=await api('lookup',{id,entity:'song'});const songs=results.filter(item=>item.wrapperType==='track');const album=songs[0]||results[0]||{};
+ app.innerHTML=`<section class="intro"><button class="plain-btn" onclick="navigate('discover')">← Back</button><div class="artist-head"><img alt="" src="${escapeHtml(album.artwork||'')}"><div><h2>${escapeHtml(album.collectionName||'Album')}</h2><p>${escapeHtml(album.artistName||'')} · ${songs.length} tracks</p><button class="btn" onclick="queueAdd('collection',${id})">Queue album</button></div></div></section>${songs.map(song=>trackRow({track_id:song.trackId,name:song.trackName,artist_name:song.artistName,collection_name:song.collectionName,artwork:song.artwork,duration_ms:song.trackTimeMillis},true)).join('')}`;
+ }catch(error){app.innerHTML=`<div class="empty">${escapeHtml(error.message)}</div>`}
+}
+async function openArtist(id){
+ app.innerHTML='<div class="empty">Loading artist…</div>';
+ try{const {results=[]}=await api('lookup',{id,entity:'album'});const albums=results.filter(item=>item.wrapperType==='collection');const artist=results[0]||{};
+ app.innerHTML=`<section class="intro"><button class="plain-btn" onclick="navigate('discover')">← Back</button><div class="artist-head"><div><h2>${escapeHtml(artist.artistName||'Artist')}</h2><p>${albums.length} albums in catalogue</p><button class="btn" onclick="queueAdd('artist',${id})">Queue artist tracks</button></div></div></section>${albums.map(resultRow).join('')}`;
+ }catch(error){app.innerHTML=`<div class="empty">${escapeHtml(error.message)}</div>`}
+}
+async function queueAdd(type,id){
+ if(!user){showAuth();toast('Sign in to make a personal queue');return}
+ try{const result=await api('queue_add',{}, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,id})});toast(`Added ${result.added} track${result.added===1?'':'s'} to your queue`)}
+ catch(error){toast(error.message)}
+}
+async function toggleFavorite(trackId){
+ if(!user){showAuth();return}
+ try{const result=await api('favorite',{}, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId})});toast(result.favorite?'Added to favorites':'Removed from favorites');if(page==='favorites')loadFavorites()}
+ catch(error){toast(error.message)}
+}
+function renderQueue(){app.innerHTML=`<section class="intro"><h1>My queue</h1><p>Only tracks you added are shown here. Follow the download progress or listen when a Bale upload is ready.</p></section><div class="toolbar"><div class="filters"><label for="queue-status">Status</label><select id="queue-status" onchange="queueStatus=this.value;queuePage=1;loadQueue()"><option value="">All statuses</option>${['queued','searching','downloading','lyrics','tagging','uploading_bale','uploading_telegram','done','failed'].map(status=>`<option value="${status}" ${status===queueStatus?'selected':''}>${status.replaceAll('_',' ')}</option>`).join('')}</select></div><span class="muted" id="queue-count"></span></div><div id="queue-items"></div><div class="pager" id="queue-pager"></div>`;loadQueue()}
+async function loadQueue(){
+ if(!user){app.innerHTML='<section class="auth"><h2>Sign in to see your queue</h2><button class="btn" onclick="showAuth()">Sign in or create account</button></section>';clearInterval(pollTimer);return}
+ try{const data=await api('queue_list',{page:queuePage,per_page:25,status:queueStatus});$('#queue-count').textContent=`${data.total} tracks`;$('#queue-items').innerHTML=data.items.map(item=>`${trackRow(item)}<div class="status">${escapeHtml(item.status.replaceAll('_',' '))} · ${Number(item.progress)}% ${item.message?`· ${escapeHtml(item.message)}`:''}${item.bale_message_id?` · Bale message ID: ${escapeHtml(item.bale_message_id)}`:''}${item.bale_file_id?` · Bale file ID: ${escapeHtml(item.bale_file_id)}`:''}<div class="progress ${item.status==='failed'?'failed':''}"><i style="width:${Number(item.progress)}%"></i></div><div class="actions">${item.telegram_url?`<a href="${escapeHtml(item.telegram_url)}" target="_blank" rel="noopener">Telegram</a>`:''}${item.bale_url?`<a href="${escapeHtml(item.bale_url)}" target="_blank" rel="noopener">Bale post</a>`:''}${['queued','failed','done'].includes(item.status)?`<button class="btn danger" onclick="removeQueue(${Number(item.id)})">Remove</button>`:''}</div></div>`).join('')||'<div class="empty">Your queue is empty. Search for music and add tracks.</div>';
+ $('#queue-pager').innerHTML=data.pages>1?`<button class="btn secondary" ${queuePage<=1?'disabled':''} onclick="queuePage--;loadQueue()">Previous</button>Page ${data.page} / ${data.pages}<button class="btn secondary" ${queuePage>=data.pages?'disabled':''} onclick="queuePage++;loadQueue()">Next</button>`:'';
+ }catch(error){$('#queue-items').innerHTML=`<div class="empty">${escapeHtml(error.message)} <button class="btn secondary" onclick="showAuth()">Sign in</button></div>`}
+}
+async function removeQueue(queueId){try{await api('queue_remove',{}, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({queue_id:queueId})});toast('Removed from your queue');loadQueue()}catch(error){toast(error.message)}}
+async function loadFavorites(){
+ if(!user){app.innerHTML='<section class="auth"><h2>Sign in to see your favorites</h2><button class="btn" onclick="showAuth()">Sign in or create account</button></section>';return}
+ app.innerHTML='<section class="intro"><h1>Favorites</h1><p>Your saved tracks, kept in one place.</p></section><div id="favorite-items"></div><div class="pager" id="favorite-pager"></div>';
+ try{const data=await api('favorites',{page:favoritesPage,per_page:30});$('#favorite-items').innerHTML=data.items.map(item=>`${trackRow(item)}<div class="actions"><button class="btn secondary" onclick="${escapeHtml(`showLyrics(${Number(item.track_id)},${JSON.stringify(item.name)})`)}">Lyrics</button><button class="btn" onclick="queueAdd('track',${Number(item.track_id)})">Queue</button><button class="btn danger" onclick="toggleFavorite(${Number(item.track_id)})">Remove favorite</button></div>`).join('')||'<div class="empty">No favorites yet. Save tracks with ♡ while searching.</div>';$('#favorite-pager').innerHTML=data.pages>1?`<button class="btn secondary" ${favoritesPage<=1?'disabled':''} onclick="favoritesPage--;loadFavorites()">Previous</button>Page ${data.page} / ${data.pages}<button class="btn secondary" ${favoritesPage>=data.pages?'disabled':''} onclick="favoritesPage++;loadFavorites()">Next</button>`:''}
+ catch(error){$('#favorite-items').innerHTML=`<div class="empty">${escapeHtml(error.message)}</div>`}
+}
+async function showLyrics(trackId,name){
+ dialog.showModal();$('#dialog-content').innerHTML=`<h2>${escapeHtml(name)}</h2><div class="lyrics">Loading lyrics…</div>`;
+ try{const data=await api('lyrics',{track_id:trackId});const content=data.lyrics_synced||data.lyrics_plain||'No lyrics are available for this track.';$('#dialog-content').innerHTML=`<h2>${escapeHtml(name)}</h2><p class="muted">${data.lyrics_synced?'Synced lyrics':'Lyrics'}${data.lyrics_source?' · '+escapeHtml(data.lyrics_source):''}</p><div class="lyrics">${escapeHtml(content)}</div>`}
+ catch(error){$('#dialog-content').innerHTML=`<h2>${escapeHtml(name)}</h2><p>${escapeHtml(error.message)}</p>`}
+}
+function playTrack(src,title,artist){const audio=$('#audio');audio.src=src;$('#player-title').textContent=title;$('#player-artist').textContent=artist;$('#player').hidden=false;audio.play().catch(()=>toast('Press play to start audio'))}
+function stopPlayer(){const audio=$('#audio');audio.pause();audio.removeAttribute('src');audio.load();$('#player').hidden=true}
+function showAuth(register=false){
+ dialog.showModal();let isRegister=register;
+ const paint=()=>{$('#dialog-content').innerHTML=`<section class="auth"><h2>${isRegister?'Create your account':'Sign in'}</h2><form onsubmit="event.preventDefault();submitAuth(${isRegister})"><input id="auth-email" type="email" placeholder="Email" required maxlength="254" autocomplete="email"><input id="auth-password" type="password" placeholder="Password (at least 10 characters)" required minlength="10" autocomplete="${isRegister?'new-password':'current-password'}"><button class="btn">${isRegister?'Create account':'Sign in'}</button><button class="auth-switch" type="button" onclick="showAuth(${!isRegister})">${isRegister?'Already have an account? Sign in':'New here? Create an account'}</button></form></section>`};
+ paint();
+}
+async function submitAuth(register){
+ const email=$('#auth-email').value,password=$('#auth-password').value;
+ try{const data=await api(register?'register':'login',{}, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});user=data.user;dialog.close();header();toast(`Welcome, ${user.email}`);if(page==='queue')navigate('queue');if(page==='favorites')loadFavorites()}
+ catch(error){toast(error.message)}
+}
+async function logout(){try{await api('logout',{}, {method:'POST'});user=null;header();navigate('discover');toast('Signed out')}catch(error){toast(error.message)}}
+async function init(){try{const data=await api('me');user=data.user}catch{user=null}header();renderDiscover()}
+init();
+</script>
+</body>
+</html>

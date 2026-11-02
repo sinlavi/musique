@@ -74,13 +74,20 @@ def _download_method_order():
     return ordered_methods
 
 def _cache_download_method(method):
+    temp_path = None
     try:
         METHOD_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = METHOD_CACHE.with_name(METHOD_CACHE.name + ".tmp")
-        temp_path.write_text(f"{method}\n")
+        fd, name = tempfile.mkstemp(prefix=METHOD_CACHE.name + ".", dir=METHOD_CACHE.parent)
+        temp_path = Path(name)
+        with os.fdopen(fd, "w") as cache_file:
+            cache_file.write(f"{method}\n")
         temp_path.replace(METHOD_CACHE)
     except OSError as e:
         print(f"could not cache working download method: {e}")
+    finally:
+        if temp_path:
+            try: temp_path.unlink(missing_ok=True)
+            except OSError as e: print(f"could not remove temporary method cache: {e}")
 
 def _available_youtube_proxy():
     if not YOUTUBE_PROXY:
@@ -333,7 +340,19 @@ async def process(job, yt, bale):
         progress(qid, "uploading_bale", 70, "Uploading to Bale")
         with open(final, "rb") as f:
             m = await bale.send_document(BALE_CHAT, f, caption=caption)
-        api("save_files", {"track_id": tid, "bale_message_id": m.id})
+        bale_document = getattr(m, "document", None)
+        bale_file_id = (
+            getattr(bale_document, "id", None)
+            or getattr(bale_document, "file_id", None)
+        )
+        bale_message_id = getattr(m, "id", None)
+        if not bale_message_id or not bale_file_id:
+            raise RuntimeError("Bale upload response is missing its message ID or document file ID")
+        api("save_files", {
+            "track_id": tid,
+            "bale_message_id": bale_message_id,
+            "bale_file_id": bale_file_id,
+        })
 
         progress(qid, "uploading_telegram", 85, "Uploading to Telegram")
         telegram = await asyncio.to_thread(upload_telegram, final, caption, t)
@@ -358,54 +377,73 @@ def validate_config():
     if missing: raise RuntimeError("Missing required configuration: " + ", ".join(missing))
     validate_cookies_file()
 
-async def main(max_jobs=0, poll_seconds=5, run_seconds=0):
+async def main(max_jobs=0, poll_seconds=5, run_seconds=0, concurrency=2):
     validate_config()
-    yt = YTMusic()
+    concurrency = max(1, concurrency)
     bale = Bale(BALE_TOKEN)
     processed = 0
+    claimed = 0
     failures = 0
     queue_errors = 0
     started_at = time.monotonic()
     deadline = started_at + run_seconds if run_seconds > 0 else None
     print(
         f"Worker started: max_jobs={max_jobs or 'unlimited'}, "
-        f"run_seconds={run_seconds or 'unlimited'}, poll_seconds={poll_seconds}",
+        f"run_seconds={run_seconds or 'unlimited'}, poll_seconds={poll_seconds}, "
+        f"concurrency={concurrency}",
         flush=True,
     )
     await bale.connect()
     try:
-        while (max_jobs <= 0 or processed < max_jobs) and (
+        while (max_jobs <= 0 or claimed < max_jobs) and (
             deadline is None or time.monotonic() < deadline
         ):
-            try: job = (await asyncio.to_thread(api, "queue_next")).get("job")
-            except Exception as e:
-                queue_errors += 1
-                print(f"Queue check failed: {e}", flush=True)
-                if max_jobs > 0 and deadline is None: raise
-                sleep_for = poll_seconds if deadline is None else min(
-                    poll_seconds, max(0, deadline - time.monotonic())
+            batch = []
+            queue_failed = False
+            while len(batch) < concurrency and (max_jobs <= 0 or claimed < max_jobs):
+                if deadline is not None and time.monotonic() >= deadline: break
+                try:
+                    job = (await asyncio.to_thread(api, "queue_next")).get("job")
+                except Exception as e:
+                    queue_errors += 1
+                    queue_failed = True
+                    print(f"Queue check failed: {e}", flush=True)
+                    break
+                if not job: break
+                track = job.get("track") or {}
+                print(
+                    f"Processing queue_id={job.get('queue_id')} "
+                    f"track_id={track.get('track_id')} "
+                    f"{track.get('artist_name', '')} - {track.get('name', '')}",
+                    flush=True,
                 )
-                if sleep_for <= 0: break
-                print(f"Retrying queue check in {sleep_for:.0f}s", flush=True)
-                await asyncio.sleep(sleep_for)
-                continue
-            if not job:
-                sleep_for = poll_seconds if deadline is None else min(
-                    poll_seconds, max(0, deadline - time.monotonic())
+                batch.append(job)
+                claimed += 1
+
+            if batch:
+                async def run_job(job):
+                    yt = await asyncio.to_thread(YTMusic)
+                    return await process(job, yt, bale)
+
+                results = await asyncio.gather(
+                    *(run_job(job) for job in batch), return_exceptions=True
                 )
-                if sleep_for <= 0: break
-                print(f"Queue is empty; checking again in {sleep_for:.0f}s", flush=True)
-                await asyncio.sleep(sleep_for)
-                continue
-            track = job.get("track") or {}
-            print(
-                f"Processing queue_id={job.get('queue_id')} "
-                f"track_id={track.get('track_id')} "
-                f"{track.get('artist_name', '')} - {track.get('name', '')}",
-                flush=True,
+                for result in results:
+                    processed += 1
+                    if isinstance(result, BaseException) or not result:
+                        failures += 1
+
+            if queue_failed and max_jobs > 0 and deadline is None:
+                break
+            if batch: continue
+
+            sleep_for = poll_seconds if deadline is None else min(
+                poll_seconds, max(0, deadline - time.monotonic())
             )
-            if not await process(job, yt, bale): failures += 1
-            processed += 1
+            if sleep_for <= 0: break
+            message = "Retrying queue check" if queue_failed else "Queue is empty; checking again"
+            print(f"{message} in {sleep_for:.0f}s", flush=True)
+            await asyncio.sleep(sleep_for)
     finally:
         await bale.disconnect()
     elapsed = int(time.monotonic() - started_at)
@@ -424,5 +462,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-jobs", type=int, default=0, help="Exit after this many jobs; 0 polls forever")
     parser.add_argument("--poll-seconds", type=int, default=5, help="Delay between queue checks in continuous mode")
     parser.add_argument("--run-seconds", type=int, default=0, help="Stop polling after this many seconds; 0 runs forever")
+    parser.add_argument("--concurrency", type=int, default=max(1, int(os.getenv("WORKER_CONCURRENCY", "2"))),
+                        help="Number of tracks to process concurrently (default: 2)")
     args = parser.parse_args()
-    asyncio.run(main(max(0, args.max_jobs), max(1, args.poll_seconds), max(0, args.run_seconds)))
+    asyncio.run(main(max(0, args.max_jobs), max(1, args.poll_seconds), max(0, args.run_seconds),
+                     max(1, args.concurrency)))
