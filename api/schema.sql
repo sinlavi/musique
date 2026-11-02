@@ -46,6 +46,29 @@ CREATE TABLE IF NOT EXISTS favorites (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY(user_id, track_id)
 );
+CREATE TABLE IF NOT EXISTS followed_artists (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  artist_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(user_id, artist_id)
+);
+CREATE INDEX IF NOT EXISTS followed_artists_user_created ON followed_artists(user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS playlists (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS playlists_user_updated ON playlists(user_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+  playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(playlist_id, track_id)
+);
+CREATE INDEX IF NOT EXISTS playlist_tracks_order ON playlist_tracks(playlist_id, position, added_at);
 CREATE TABLE IF NOT EXISTS track_files (
   track_id INTEGER PRIMARY KEY, youtube_id TEXT, file_name TEXT, file_size INTEGER,
   bale_message_id INTEGER, bale_file_id TEXT, telegram_message_id INTEGER, telegram_file_id TEXT,

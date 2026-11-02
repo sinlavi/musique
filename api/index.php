@@ -349,6 +349,40 @@ switch ($action) {
     if ($s->rowCount() < 1) out(['error' => 'queue_item_not_removable'], 409);
     out(['ok' => true]);
   }
+  case 'artist_follow': {
+    $user = current_user(true); $b = body(); $artistId = (int)($b['artist_id'] ?? 0);
+    if ($artistId < 1) out(['error' => 'artist_id_required'], 400);
+    $exists = $pdo->prepare('SELECT 1 FROM followed_artists WHERE user_id=? AND artist_id=?');
+    $exists->execute([$user['id'], $artistId]);
+    if ($exists->fetchColumn()) {
+      $pdo->prepare('DELETE FROM followed_artists WHERE user_id=? AND artist_id=?')->execute([$user['id'], $artistId]);
+      out(['following' => false]);
+    }
+    $pdo->prepare('INSERT INTO followed_artists (user_id, artist_id) VALUES (?, ?)')->execute([$user['id'], $artistId]);
+    out(['following' => true]);
+  }
+  case 'artist_following': {
+    $user = current_user(true); $artistId = (int)($_GET['artist_id'] ?? 0);
+    if ($artistId < 1) out(['error' => 'artist_id_required'], 400);
+    $s = $pdo->prepare('SELECT 1 FROM followed_artists WHERE user_id=? AND artist_id=?');
+    $s->execute([$user['id'], $artistId]);
+    out(['following' => (bool)$s->fetchColumn()]);
+  }
+  case 'followed_artists': {
+    $user = current_user(true);
+    $s = $pdo->prepare('SELECT f.artist_id, COALESCE(a.name, "Artist " || f.artist_id) AS name, a.genre, a.raw, f.created_at
+      FROM followed_artists f LEFT JOIN artists a ON a.artist_id=f.artist_id
+      WHERE f.user_id=? ORDER BY f.created_at DESC');
+    $s->execute([$user['id']]);
+    $items = $s->fetchAll();
+    foreach ($items as &$item) {
+      $raw = json_decode($item['raw'] ?? '', true);
+      $item['artwork'] = art($raw['artworkUrl100'] ?? null);
+      unset($item['raw']);
+    }
+    unset($item);
+    out(['items' => $items]);
+  }
   case 'favorite': {
     $user = current_user(true); $b = body(); $trackId = (int)($b['track_id'] ?? 0);
     if ($trackId < 1) out(['error' => 'track_id_required'], 400);
@@ -377,6 +411,79 @@ switch ($action) {
       $item['bale_stream_url'] = $item['bale_file_id'] ? signed_bale_url((int)$item['track_id']) : null;
     }
     out(['page' => $page, 'per_page' => $pp, 'total' => $total, 'pages' => (int)ceil($total / $pp), 'items' => $items]);
+  }
+  case 'playlists': {
+    $user = current_user(true);
+    $s = $pdo->prepare('SELECT p.id, p.name, p.created_at, p.updated_at, COUNT(pt.track_id) AS track_count
+      FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id=p.id
+      WHERE p.user_id=? GROUP BY p.id ORDER BY p.updated_at DESC, p.id DESC');
+    $s->execute([$user['id']]);
+    out(['items' => $s->fetchAll()]);
+  }
+  case 'playlist_create': {
+    $user = current_user(true); $b = body(); $name = trim((string)($b['name'] ?? ''));
+    if ($name === '' || mb_strlen($name) > 80) out(['error' => 'playlist_name_invalid'], 400);
+    $pdo->prepare('INSERT INTO playlists (user_id, name) VALUES (?, ?)')->execute([$user['id'], $name]);
+    out(['id' => (int)$pdo->lastInsertId(), 'name' => $name]);
+  }
+  case 'playlist_delete': {
+    $user = current_user(true); $b = body(); $playlistId = (int)($b['playlist_id'] ?? 0);
+    if ($playlistId < 1) out(['error' => 'playlist_id_required'], 400);
+    $s = $pdo->prepare('DELETE FROM playlists WHERE id=? AND user_id=?');
+    $s->execute([$playlistId, $user['id']]);
+    if ($s->rowCount() < 1) out(['error' => 'playlist_not_found'], 404);
+    out(['ok' => true]);
+  }
+  case 'playlist_add': {
+    $user = current_user(true); $b = body();
+    $playlistId = (int)($b['playlist_id'] ?? 0); $trackId = (int)($b['track_id'] ?? 0);
+    $owned = $pdo->prepare('SELECT id FROM playlists WHERE id=? AND user_id=?');
+    $owned->execute([$playlistId, $user['id']]);
+    if (!$owned->fetchColumn()) out(['error' => 'playlist_not_found'], 404);
+    $track = $pdo->prepare('SELECT 1 FROM tracks WHERE track_id=?');
+    $track->execute([$trackId]);
+    if ($trackId < 1 || !$track->fetchColumn()) out(['error' => 'unknown_track'], 404);
+    $position = $pdo->prepare('SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id=?');
+    $position->execute([$playlistId]);
+    $insert = $pdo->prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)');
+    $insert->execute([$playlistId, $trackId, (int)$position->fetchColumn()]);
+    $pdo->prepare("UPDATE playlists SET updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?")->execute([$playlistId, $user['id']]);
+    out(['added' => $insert->rowCount() > 0]);
+  }
+  case 'playlist_remove': {
+    $user = current_user(true); $b = body();
+    $playlistId = (int)($b['playlist_id'] ?? 0); $trackId = (int)($b['track_id'] ?? 0);
+    $s = $pdo->prepare('DELETE FROM playlist_tracks WHERE playlist_id=? AND track_id=?
+      AND EXISTS (SELECT 1 FROM playlists WHERE id=? AND user_id=?)');
+    $s->execute([$playlistId, $trackId, $playlistId, $user['id']]);
+    if ($s->rowCount() < 1) out(['error' => 'playlist_track_not_found'], 404);
+    $pdo->prepare('UPDATE playlists SET updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?')->execute([$playlistId, $user['id']]);
+    out(['ok' => true]);
+  }
+  case 'playlist_tracks': {
+    $user = current_user(true); $playlistId = (int)($_GET['playlist_id'] ?? 0);
+    $page = max(1, (int)($_GET['page'] ?? 1)); $pp = min(100, max(1, (int)($_GET['per_page'] ?? 50)));
+    $owned = $pdo->prepare('SELECT id, name FROM playlists WHERE id=? AND user_id=?');
+    $owned->execute([$playlistId, $user['id']]);
+    $playlist = $owned->fetch();
+    if (!$playlist) out(['error' => 'playlist_not_found'], 404);
+    $count = $pdo->prepare('SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id=?');
+    $count->execute([$playlistId]); $total = (int)$count->fetchColumn();
+    $items = $pdo->prepare('SELECT t.track_id,t.name,t.artist_name,t.artist_id,t.collection_id,t.collection_name,t.artwork,
+      t.duration_ms,t.track_number,t.preview_url,tf.bale_file_id FROM playlist_tracks pt
+      JOIN tracks t ON t.track_id=pt.track_id LEFT JOIN track_files tf ON tf.track_id=t.track_id
+      WHERE pt.playlist_id=? ORDER BY pt.position,pt.added_at LIMIT ? OFFSET ?');
+    $items->bindValue(1, $playlistId, PDO::PARAM_INT);
+    $items->bindValue(2, $pp, PDO::PARAM_INT);
+    $items->bindValue(3, ($page - 1) * $pp, PDO::PARAM_INT);
+    $items->execute(); $rows = $items->fetchAll();
+    foreach ($rows as &$row) {
+      $row['is_crawled'] = !empty($row['bale_file_id']);
+      $row['bale_stream_url'] = $row['is_crawled'] ? signed_bale_url((int)$row['track_id']) : null;
+    }
+    unset($row);
+    out(['playlist' => $playlist, 'page' => $page, 'per_page' => $pp, 'total' => $total,
+      'pages' => (int)ceil($total / $pp), 'items' => $rows]);
   }
   case 'lyrics': { // cached lyrics, else live lrclib fallback
     $tid = (int)($_GET['track_id'] ?? 0); $row = lyrics_row($pdo, $tid);
