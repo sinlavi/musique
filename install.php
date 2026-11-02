@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-const MMAN_INSTALLER_PASSWORD = 'CHANGE-THIS-TO-A-LONG-RANDOM-SECRET';
+const MMAN_INSTALLER_PASSWORD = 'CHANGE-THIS-TO-A-UNIQUE-PASSWORD';
 const MMAN_INSTALL_BRANCH = 'main';
 const MMAN_INSTALL_MAX_ARCHIVE_BYTES = 100000000;
 
@@ -251,11 +251,11 @@ $result = null;
 if (($_SESSION['mman_installer_failures'] ?? 0) >= 5) {
   http_response_code(429);
   $message = 'Too many failed attempts. Wait for the session to expire before trying again.';
-} elseif (hash_equals(MMAN_INSTALLER_PASSWORD, 'CHANGE-THIS-TO-A-LONG-RANDOM-SECRET') &&
+} elseif (hash_equals(MMAN_INSTALLER_PASSWORD, 'CHANGE-THIS-TO-A-UNIQUE-PASSWORD') &&
     getenv('MMAN_INSTALLER_PASSWORD') === false) {
   $message = 'Before uploading this file, replace MMAN_INSTALLER_PASSWORD in the source with a unique random password.';
-} elseif (strlen($configuredPassword) < 32) {
-  $message = 'Installer password must be at least 32 characters.';
+} elseif (strlen($configuredPassword) < 12 || strlen($configuredPassword) > 128) {
+  $message = 'Installer password must be between 12 and 128 characters.';
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $submittedCsrf = is_string($_POST['csrf'] ?? null) ? $_POST['csrf'] : '';
   $submittedPassword = is_string($_POST['installer_password'] ?? null) ? $_POST['installer_password'] : '';
@@ -303,6 +303,26 @@ body{background:#f6f7f5;color:#17231d;font:15px/1.5 Inter,ui-sans-serif,system-u
 .brand small{font-size:10px;letter-spacing:1.5px}.masthead{border-bottom:1px solid #e4e9e5}.intro{border-color:#e4e9e5}.eyebrow{color:#316348}
 .panel{border:1px solid #e4e9e5;border-radius:14px;background:#fff;box-shadow:0 12px 35px #18332612}.btn{min-height:40px;border-radius:9px;background:#316348}.btn:hover{background:#214b34}
 input{min-height:42px;border-color:#e4e9e5;border-radius:9px;background:#fff;font:14px Arial,sans-serif}.notice{border-color:#eedfb9;border-radius:10px;background:#fff9e9}.error{border-color:#efd8d4;border-radius:10px;background:#fff5f3}.success{border-color:#dce9df;border-radius:10px;background:#f3f8f4}.key{border:1px solid #e4e9e5;border-radius:9px;background:#f0f3f0}.footer{max-width:760px;margin:20px auto;color:#758078;font-size:12px}
+/* Keep the installer in the original classic mman style. */
+:root{color-scheme:light;--paper:#f3f0e8;--panel:#fffdf8;--ink:#252c26;--muted:#77796f;--line:#d9d4c7;--green:#365d48;--green-dark:#244331;--gold:#a27430;--shadow:0 3px 14px #2625180c}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 Georgia,"Times New Roman",serif}
+.wrap{max-width:1100px;margin:auto;padding:0 24px 50px}
+.masthead{border-bottom:3px double var(--line);padding:20px 0 15px}
+.brand{display:block;color:var(--green-dark);font:bold 30px Georgia,serif;letter-spacing:-1px}
+.brand:before{display:none}.brand small{display:block;color:var(--muted);font:normal 11px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase}
+.mast-label{font:11px Arial,sans-serif;letter-spacing:1.8px;color:var(--muted)}
+.intro{max-width:760px;border-color:var(--line);padding:28px 0 18px}
+.eyebrow{color:var(--gold);font:11px Arial,sans-serif;letter-spacing:1.8px}
+h1{font:normal 29px Georgia,serif;color:var(--ink);margin:5px 0 4px;letter-spacing:0}
+h2{font:22px Georgia,serif}
+.panel{max-width:760px;margin:18px auto;padding:22px;border:1px solid var(--line);border-radius:0;background:var(--panel);box-shadow:var(--shadow)}
+.btn{min-height:0;padding:11px 16px;border:1px solid var(--green);border-radius:3px;background:var(--green);font:15px Georgia,serif}
+.btn:hover{background:var(--green-dark)}
+input{min-height:0;padding:10px;border:1px solid #c9c4b8;border-radius:3px;background:#fffefa;color:var(--ink);font:15px Arial,sans-serif}
+input:focus{outline:2px solid #8eaa96;outline-offset:1px}
+.notice{border:1px solid #ddbd77;border-radius:0;background:#fff2d6}.error{border:1px solid #cc8d80;border-radius:0;background:#fbe9e6}.success{border:1px solid #8bb090;border-radius:0;background:#e8f4e9}
+.key{border:1px solid var(--line);border-radius:0;background:#eeeae0}.footer{max-width:760px;margin:20px auto;color:var(--muted);font-size:13px}
+@media(max-width:680px){.wrap{padding:0 14px 35px}.masthead{align-items:flex-start;gap:12px;flex-wrap:wrap}.brand{font-size:25px}.intro{padding-top:22px}.panel{padding:16px}}
 </style>
 </head>
 <body><main class="wrap">
@@ -325,7 +345,7 @@ input{min-height:42px;border-color:#e4e9e5;border-radius:9px;background:#fff;fon
 <form class="panel" method="post" autocomplete="off">
   <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
   <label for="installer_password">Installer password</label>
-  <input id="installer_password" name="installer_password" type="password" required autocomplete="current-password">
+  <input id="installer_password" name="installer_password" type="password" required maxlength="128" autocomplete="current-password">
   <label for="target">Absolute install directory</label>
   <input id="target" name="target" required value="<?= h((string)($_POST['target'] ?? $targetDefault)) ?>">
   <p class="hint">The directory must already exist and be writable by PHP. Usually this is the folder where you uploaded install.php, such as /home/ACCOUNT/public_html/mm.</p>

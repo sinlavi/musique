@@ -197,8 +197,9 @@ switch ($action) {
     $b = body(); $emailInput = $b['email'] ?? ''; $password = $b['password'] ?? '';
     if (!is_string($emailInput) || !is_string($password)) out(['error' => 'email_and_password_required'], 400);
     $email = strtolower(trim($emailInput));
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 254 || strlen($password) < 10) {
-      out(['error' => 'email_and_password_required', 'message' => 'Use a valid email and a password with at least 10 characters.'], 400);
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 254 ||
+        strlen($password) < 8 || strlen($password) > 72) {
+      out(['error' => 'email_and_password_required', 'message' => 'Use a valid email and a password between 8 and 72 bytes.'], 400);
     }
     try {
       $pdo->prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)')->execute([$email, password_hash($password, PASSWORD_DEFAULT)]);
