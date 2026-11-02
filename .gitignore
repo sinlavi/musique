@@ -1,0 +1,6 @@
+bot/.env
+bot/cookies.txt
+bot/worker-state/
+bot/.worker-state/
+__pycache__/
+*.py[cod]

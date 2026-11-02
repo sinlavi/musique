@@ -1,7 +1,8 @@
 """mman queue worker: YouTube Music -> mp3 (+tags, lyrics) -> Bale channel -> Telegram channel.
 Needs ffmpeg installed. Put your exported YouTube cookies in cookies.txt next to this file."""
-import argparse, asyncio, os, re, shutil, tempfile
+import argparse, asyncio, os, re, shutil, socket, tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 import requests, yt_dlp
 from ytmusicapi import YTMusic
 from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TRCK, TPOS, TDRC, TCON, APIC, USLT, SYLT
@@ -12,6 +13,22 @@ KEY = os.getenv("API_KEY", "")
 COOKIES = os.getenv("COOKIES", "cookies.txt")
 BALE_TOKEN, BALE_CHAT = os.getenv("BALE_TOKEN"), os.getenv("BALE_CHAT")            # chat: channel id or @username
 TG_BOT_TOKEN, TG_CHAT = os.getenv("TG_BOT_TOKEN"), os.getenv("TG_CHAT")          # bot must be channel admin
+YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "socks5h://127.0.0.1:1080").strip()
+METHOD_CACHE = Path(os.getenv(
+    "DOWNLOAD_METHOD_CACHE",
+    str(Path(__file__).with_name(".worker-state") / "last_download_method"),
+))
+DOWNLOAD_METHODS = {
+    8: (["web"], "ejs:github"),
+    2: (["web"], "ejs:npm"),
+    3: (["web", "mweb", "android_vr"], "ejs:github"),
+    4: (["mweb"], None),
+    5: (["android_vr"], None),
+    6: (["web"], "ejs:github"),
+    7: (["mweb"], None),
+    1: (["android"], None),
+}
+DEFAULT_METHOD_ORDER = [8, 2, 3, 4, 5, 6, 7, 1]
 UA = {"User-Agent": "mman-queue-bot/1.0"}
 
 def api(action, data=None):
@@ -33,12 +50,93 @@ def find_video(yt, t):
         return diff - (5 if t["name"].lower() in r["title"].lower() else 0)
     return min(res, key=score)["videoId"]
 
+def _download_method_order():
+    try:
+        preferred = int(METHOD_CACHE.read_text().strip())
+    except FileNotFoundError:
+        preferred = None
+    except (OSError, ValueError) as e:
+        print(f"download method cache error: {e}")
+        preferred = None
+    if preferred not in DOWNLOAD_METHODS:
+        return DEFAULT_METHOD_ORDER.copy()
+    return [preferred] + [method for method in DEFAULT_METHOD_ORDER if method != preferred]
+
+def _cache_download_method(method):
+    try:
+        METHOD_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = METHOD_CACHE.with_name(METHOD_CACHE.name + ".tmp")
+        temp_path.write_text(f"{method}\n")
+        temp_path.replace(METHOD_CACHE)
+    except OSError as e:
+        print(f"could not cache working download method: {e}")
+
+def _available_youtube_proxy():
+    if not YOUTUBE_PROXY:
+        return None
+    try:
+        parsed = urlsplit(YOUTUBE_PROXY)
+        if parsed.scheme not in {"socks5", "socks5h", "http", "https"} or not parsed.hostname:
+            raise ValueError("YOUTUBE_PROXY must be a socks5, socks5h, http, or https URL")
+        port = parsed.port or (443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else 1080)
+        with socket.create_connection((parsed.hostname, port), timeout=1):
+            return YOUTUBE_PROXY
+    except (OSError, ValueError) as e:
+        print(f"YouTube proxy unavailable; using direct connection: {e}")
+        return None
+
+def _download_options(method, outdir, hook, proxy):
+    clients, remote_component = DOWNLOAD_METHODS[method]
+    opts = {
+        "format": "bestaudio/best",
+        "outtmpl": f"{outdir}/src.%(ext)s",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "cookiefile": COOKIES,
+        "progress_hooks": [hook],
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "320",
+        }],
+        "extractor_args": {"youtube": {"player_client": clients}},
+        "proxy": proxy,
+    }
+    if remote_component and shutil.which("deno"):
+        opts["js_runtimes"] = {"deno": {}}
+        opts["remote_components"] = [remote_component]
+    if method == 1:
+        opts["http_headers"] = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; SM-S906N Build/QP1A.190711.020) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
+        }
+    return opts
+
 def download(vid, outdir, hook):
-    opts = {"format": "bestaudio/best", "outtmpl": f"{outdir}/src.%(ext)s", "noplaylist": True, "quiet": True,
-            "cookiefile": COOKIES if Path(COOKIES).exists() else None, "progress_hooks": [hook],
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "320"}]}
-    with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([f"https://music.youtube.com/watch?v={vid}"])
-    return Path(outdir) / "src.mp3"
+    proxy = _available_youtube_proxy()
+    routes = [proxy, None] if proxy else [None]
+    failures = []
+    for method in _download_method_order():
+        for route in routes:
+            route_name = "WARP/SOCKS proxy" if route else "direct"
+            print(f"Trying YouTube download method {method} via {route_name}")
+            for path in Path(outdir).glob("src*"):
+                if path.is_file():
+                    path.unlink()
+            try:
+                options = _download_options(method, outdir, hook, route)
+                with yt_dlp.YoutubeDL(options) as ydl:
+                    ydl.download([f"https://music.youtube.com/watch?v={vid}"])
+                mp3 = Path(outdir) / "src.mp3"
+                if not mp3.is_file() or mp3.stat().st_size == 0:
+                    raise RuntimeError("yt-dlp completed without producing an MP3")
+                _cache_download_method(method)
+                return mp3
+            except Exception as e:
+                failures.append(f"method {method} ({route_name}): {e}")
+                print(f"YouTube download method {method} failed via {route_name}: {e}")
+    raise RuntimeError("All YouTube download methods failed: " + " | ".join(failures))
 
 # ---------- Lyrics ----------
 def lrclib(t):

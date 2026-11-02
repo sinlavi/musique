@@ -20,9 +20,31 @@ jobs:
       BALE_CHAT: ${{ secrets.BALE_CHAT }}
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT: ${{ secrets.TG_CHAT }}
+      YOUTUBE_PROXY: ${{ secrets.YOUTUBE_PROXY }}
       COOKIES: ${{ github.workspace }}/bot/cookies.txt
+      DOWNLOAD_METHOD_CACHE: ${{ github.workspace }}/bot/.worker-state/last_download_method
     steps:
       - uses: actions/checkout@v4
+      - name: Validate required repository secrets
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          BALE_TOKEN: ${{ secrets.BALE_TOKEN }}
+          BALE_CHAT: ${{ secrets.BALE_CHAT }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
+        run: |
+          missing=""
+          [ -n "$API_KEY" ] || missing="$missing API_KEY"
+          [ -n "$YOUTUBE_COOKIES" ] || missing="$missing YOUTUBE_COOKIES"
+          [ -n "$BALE_TOKEN" ] || missing="$missing BALE_TOKEN"
+          [ -n "$BALE_CHAT" ] || missing="$missing BALE_CHAT"
+          [ -n "$TG_BOT_TOKEN" ] || missing="$missing TG_BOT_TOKEN"
+          [ -n "$TG_CHAT" ] || missing="$missing TG_CHAT"
+          if [ -n "$missing" ]; then
+            printf 'Missing required GitHub Actions secrets:%s\n' "$missing" >&2
+            exit 1
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -30,10 +52,11 @@ jobs:
           cache-dependency-path: bot/requirements.txt
       - name: Install audio tools and dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg
-          python -m pip install --upgrade pip
-          pip install -r bot/requirements.txt
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes ffmpeg
+          fi
+          python -m pip install --requirement bot/requirements.txt
       - name: Configure YouTube cookies
         env:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
@@ -41,5 +64,20 @@ jobs:
           test -n "$YOUTUBE_COOKIES"
           printf '%s' "$YOUTUBE_COOKIES" > "$COOKIES"
           chmod 600 "$COOKIES"
+      - name: Prepare downloader method cache
+        run: mkdir -p bot/.worker-state && touch bot/.worker-state/last_download_method
+      - name: Restore last working YouTube method
+        uses: actions/cache/restore@v4
+        with:
+          path: bot/.worker-state/last_download_method
+          key: mman-download-method-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            mman-download-method-${{ runner.os }}-
       - name: Process queued tracks
         run: python bot/bot.py --max-jobs 10
+      - name: Save last working YouTube method
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: bot/.worker-state/last_download_method
+          key: mman-download-method-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

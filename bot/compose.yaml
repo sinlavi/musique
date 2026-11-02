@@ -1,0 +1,16 @@
+services:
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      API_URL: ${API_URL:-https://mman.ir/api/index.php}
+      COOKIES: /run/secrets/youtube_cookies
+      YOUTUBE_PROXY: ${YOUTUBE_PROXY-socks5h://host.docker.internal:1080}
+      DOWNLOAD_METHOD_CACHE: /var/lib/mman-worker/last_download_method
+    volumes:
+      - ./cookies.txt:/run/secrets/youtube_cookies:ro
+      - ./worker-state:/var/lib/mman-worker
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    init: true

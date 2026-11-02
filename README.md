@@ -19,17 +19,20 @@ Existing MySQL data is not migrated automatically. Export/import it into SQLite 
 
 ## GitHub Actions worker
 
-Add the following repository Actions secrets. The workflow runs every two hours and can also be started with **Actions > mman queue worker > Run workflow**. Each run handles at most ten jobs and exits when the queue is empty.
+Add the following repository Actions secrets. The workflow runs every two hours and can also be started with **Actions > mman queue worker > Run workflow**. Each run handles at most ten jobs and exits when the queue is empty. It checks all required secrets before installing dependencies. Python packages use the `setup-python` pip cache, keyed to `bot/requirements.txt`; FFmpeg is installed only if it is not already available on the runner.
 
 | Secret | Value |
 | --- | --- |
 | `API_URL` | Optional API URL; defaults to `https://mman.ir/api/index.php` |
 | `API_KEY` | Same value configured for the PHP API |
 | `YOUTUBE_COOKIES` | Entire Netscape-format YouTube cookies file contents |
+| `YOUTUBE_PROXY` | Optional reachable SOCKS5/HTTP proxy URL, such as a WARP-backed SOCKS proxy |
 | `BALE_TOKEN`, `BALE_CHAT` | Bale bot token and destination channel/chat ID |
 | `TG_BOT_TOKEN`, `TG_CHAT` | Telegram bot token and destination channel/chat ID |
 
-The Telegram bot must be permitted to post in its destination channel. The worker sends audio using Telegram's Bot API; no Telethon session or Telegram application credentials are needed. Do not commit credentials or `cookies.txt` to the repository. The workflow installs FFmpeg and writes the cookies secret to a temporary runner file.
+The Telegram bot must be permitted to post in its destination channel. The worker sends audio using Telegram's Bot API; no Telethon session or Telegram application credentials are needed. Do not commit credentials or `cookies.txt` to the repository. The workflow ensures FFmpeg is installed, writes the cookies secret to a temporary runner file, and restores/saves the last successful YouTube download method using the Actions cache.
+
+The worker tries eight yt-dlp YouTube client profiles, starting with the last one that succeeded. If `YOUTUBE_PROXY` points to a reachable SOCKS5/HTTP proxy (for example, a WARP-backed SOCKS proxy), each profile tries the proxy first and then a direct connection.
 
 ## Run the worker locally
 
@@ -40,3 +43,14 @@ python bot/bot.py --max-jobs 10
 ```
 
 Omit `--max-jobs` to keep polling continuously.
+
+## Always-on worker
+
+GitHub-hosted Actions jobs have execution time limits and are not suitable for a permanently running queue poller. To keep a worker online continuously, run it on a VPS or server with Docker Compose. From the `bot/` directory, create a `.env` file containing `API_KEY`, `BALE_TOKEN`, `BALE_CHAT`, `TG_BOT_TOKEN`, and `TG_CHAT`; optionally set `API_URL` and `YOUTUBE_PROXY`. Put the Netscape-format YouTube cookies at `bot/cookies.txt`, then start the service:
+
+```sh
+cd bot
+docker compose up --build --detach
+```
+
+The container polls every 30 seconds and restarts automatically if it exits. The default `YOUTUBE_PROXY` expects a SOCKS5 proxy on the host at port 1080 (for example, a WARP-backed proxy); override it if the proxy listens elsewhere, or set it to an empty value to use direct connections. The last successful downloader method is stored under `bot/worker-state/` and reused after container restarts. Use `docker compose logs -f` to inspect the worker and `docker compose down` to stop it. Keep `.env` and `cookies.txt` private; neither should be committed.
