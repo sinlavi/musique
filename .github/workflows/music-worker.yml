@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 90
     env:
       API_URL: ${{ secrets.API_URL || 'https://mman.ir/api/index.php' }}
-      API_KEY: ${{ secrets.API_KEY }}
+      API_KEY: ${{ secrets.API_KEY || 'API_KEY' }}
       BALE_TOKEN: ${{ secrets.BALE_TOKEN }}
       BALE_CHAT: ${{ secrets.BALE_CHAT }}
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
