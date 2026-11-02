@@ -272,6 +272,13 @@ switch ($action) {
     $status = $_GET['status'] ?? ''; $w = 'WHERE q.user_id=?'; $p = [(int)$user['id']];
     if ($status !== '') { $w .= ' AND q.status=?'; $p[] = $status; }
     $c = $pdo->prepare("SELECT COUNT(*) FROM queue q $w"); $c->execute($p); $total = (int)$c->fetchColumn();
+    $summary = $pdo->prepare('SELECT status, COUNT(*) AS count FROM queue WHERE user_id=? GROUP BY status');
+    $summary->execute([(int)$user['id']]);
+    $statusCounts = array_fill_keys(
+      ['queued', 'searching', 'downloading', 'lyrics', 'tagging', 'uploading_bale', 'uploading_telegram', 'done', 'failed'],
+      0
+    );
+    foreach ($summary->fetchAll() as $row) $statusCounts[$row['status']] = (int)$row['count'];
     $off = ($page - 1) * $pp;
     $s = $pdo->prepare("SELECT q.id,q.status,q.progress,q.message,q.updated_at,t.track_id,t.name,t.artist_name,t.collection_name,t.artwork,
       f.bale_message_id,f.bale_file_id,f.telegram_message_id,f.telegram_file_id FROM queue q JOIN tracks t ON t.track_id=q.track_id
@@ -282,7 +289,14 @@ switch ($action) {
       $r['bale_url'] = $r['bale_message_id'] && $cfg['bale_channel_username'] ? "https://ble.ir/{$cfg['bale_channel_username']}/{$r['bale_message_id']}" : null;
       $r['telegram_url'] = $r['telegram_message_id'] && $cfg['telegram_channel_username'] ? "https://t.me/{$cfg['telegram_channel_username']}/{$r['telegram_message_id']}" : null;
     }
-    out(['page' => $page, 'per_page' => $pp, 'total' => $total, 'pages' => (int)ceil($total / $pp), 'items' => $rows]);
+    out([
+      'page' => $page,
+      'per_page' => $pp,
+      'total' => $total,
+      'pages' => (int)ceil($total / $pp),
+      'status_counts' => $statusCounts,
+      'items' => $rows,
+    ]);
   }
   case 'queue_remove': {
     $user = current_user(true); $b = body(); $queueId = (int)($b['queue_id'] ?? 0);

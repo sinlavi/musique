@@ -18,6 +18,14 @@ main{padding-top:27px}.intro{border-bottom:1px solid var(--line);padding-bottom:
 .btn{border:1px solid var(--green);background:var(--green);color:white;padding:9px 14px;border-radius:3px}.btn:hover{background:var(--green-dark)}.btn.secondary{background:transparent;color:var(--green)}.btn.danger{border-color:var(--red);background:transparent;color:var(--red)}.btn:disabled{opacity:.55;cursor:wait}
 .tabs,.filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0}.tabs button{border:0;border-bottom:2px solid transparent;background:none;padding:7px 10px;color:var(--muted)}.tabs button.active{border-color:var(--green);color:var(--green-dark)}
 .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:var(--muted);font-size:13px}
+.eyebrow{font:11px Arial,sans-serif;letter-spacing:1.8px;text-transform:uppercase;color:var(--gold)}.intro h1{margin-top:5px}
+.dashboard{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:17px 0}.stat-card{border:1px solid var(--line);background:var(--panel);padding:11px 14px;cursor:pointer;text-align:left}.stat-card:hover,.stat-card.active{border-color:var(--green);box-shadow:var(--shadow)}.stat-card strong{display:block;font:22px Georgia,serif;color:var(--green-dark)}.stat-card span{font:11px Arial,sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.search-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.search-tools select,.filters select{padding:8px;border:1px solid var(--line);background:var(--panel);border-radius:3px}
+.recent-searches{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:12px 0 16px}.recent-searches button{border:1px solid var(--line);border-radius:20px;background:var(--panel);padding:5px 10px;color:var(--muted);font-size:12px}.recent-searches button:hover{border-color:var(--green);color:var(--green-dark)}
+.section-rule{display:flex;align-items:center;gap:12px;margin:16px 0 5px;color:var(--muted);font-size:13px}.section-rule:after{content:"";height:1px;background:var(--line);flex:1}
+.identity-note{border-left:3px solid var(--green);padding:10px 13px;background:#ebe8dd;color:var(--muted);font-size:13px;margin:14px 0}
+.searchbar input:focus,.auth input:focus,.installer input:focus{outline:2px solid #8eaa96;outline-offset:1px}
+.track:hover{background:#fffdf866}.track-info strong{font-size:16px}.empty strong{display:block;font:21px Georgia,serif;color:var(--ink);margin-bottom:5px}
 .track{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 4px;border-bottom:1px solid var(--line)}
 .track img{width:52px;height:52px;object-fit:cover;background:#e6e1d5}.track-info{min-width:0}.track-info strong,.track-info span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.track-info span{color:var(--muted);font-size:13px}
 .actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.actions .btn{font:13px Arial,sans-serif;padding:6px 9px}.plain-btn{border:0;background:none;color:var(--green);font-size:18px;padding:3px 7px}.plain-btn.fav{color:var(--gold)}
@@ -28,7 +36,7 @@ main{padding-top:27px}.intro{border-bottom:1px solid var(--line);padding-bottom:
 .player{position:fixed;bottom:0;left:0;right:0;background:#e8e3d6;border-top:1px solid #c8c0af;box-shadow:0 -4px 18px #241e1410}.player-inner{max-width:1100px;margin:auto;padding:10px 24px;display:grid;grid-template-columns:minmax(140px,1fr) minmax(240px,2fr) auto;gap:18px;align-items:center}.now-playing{overflow:hidden}.now-playing strong,.now-playing span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.now-playing span{font-size:12px;color:var(--muted)}audio{width:100%;height:34px}.player-close{border:0;background:none;color:var(--muted)}
 dialog{max-width:620px;width:calc(100% - 30px);border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:22px}dialog::backdrop{background:#24271f88}.lyrics{white-space:pre-wrap;max-height:60vh;overflow:auto;line-height:1.9}
 #toast{position:fixed;bottom:86px;left:50%;transform:translateX(-50%);background:var(--ink);color:white;padding:9px 16px;display:none;box-shadow:var(--shadow)}
-@media(max-width:680px){.shell{padding:0 14px 110px}.masthead{align-items:flex-start;gap:12px;flex-wrap:wrap}.brand{font-size:25px}.player-inner{grid-template-columns:1fr auto;gap:5px 12px;padding:8px 14px}.now-playing{grid-column:1}.player audio{grid-column:1/-1;grid-row:2}.player-close{grid-column:2;grid-row:1}.track{grid-template-columns:44px minmax(0,1fr)}.track img{width:44px;height:44px}.actions{grid-column:2;justify-content:flex-start}.intro h1{font-size:25px}}
+@media(max-width:680px){.shell{padding:0 14px 110px}.masthead{align-items:flex-start;gap:12px;flex-wrap:wrap}.brand{font-size:25px}.player-inner{grid-template-columns:1fr auto;gap:5px 12px;padding:8px 14px}.now-playing{grid-column:1}.player audio{grid-column:1/-1;grid-row:2}.player-close{grid-column:2;grid-row:1}.track{grid-template-columns:44px minmax(0,1fr)}.track img{width:44px;height:44px}.actions{grid-column:2;justify-content:flex-start}.intro h1{font-size:25px}.dashboard{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
 <body>
@@ -54,8 +62,14 @@ dialog{max-width:620px;width:calc(100% - 30px);border:1px solid var(--line);back
 <dialog id="dialog"><div id="dialog-content"></div><p><button class="btn secondary" onclick="dialog.close()">Close</button></p></dialog>
 <div id="toast" role="status"></div>
 <script>
-const API='/api/index.php', $=selector=>document.querySelector(selector), app=$('#app'), dialog=$('#dialog');
-let user=null, page='discover', entity='song', query='', queuePage=1, queueStatus='', favoritesPage=1, pollTimer=null;
+const path=window.location.pathname;
+const appBase=path.endsWith('/web/index.html')?path.slice(0,-'web/index.html'.length):path.endsWith('/')?path:path.slice(0,path.lastIndexOf('/')+1);
+const API=new URL(`${appBase}api/index.php`,window.location.origin).toString();
+const RECENT_KEY=`mman-recent-searches:${appBase}`;
+const $=selector=>document.querySelector(selector), app=$('#app'), dialog=$('#dialog');
+let user=null, page='discover', entity='song', query='', queuePage=1, queueStatus='', favoritesPage=1, pollTimer=null, currentResults=[];
+let recentSearches=[];
+try{const stored=JSON.parse(localStorage.getItem(RECENT_KEY)||'[]');if(Array.isArray(stored))recentSearches=stored.filter(item=>typeof item==='string').slice(0,6)}catch{}
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const duration=ms=>ms?`${Math.floor(ms/60000)}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}`:'';
 async function api(action,params={},options={}){
@@ -69,17 +83,32 @@ function toast(message){const node=$('#toast');node.textContent=message;node.sty
 function header(){['discover','queue','favorites'].forEach(id=>$('#nav-'+id).classList.toggle('active',page===id));$('#account').innerHTML=user?`${escapeHtml(user.email)} · <button class="plain-btn" onclick="logout()">Sign out</button>`:`<button class="plain-btn" onclick="showAuth()">Sign in</button>`;}
 function navigate(next){page=next;clearInterval(pollTimer);header();if(next==='queue'){renderQueue();pollTimer=setInterval(loadQueue,4000)}else if(next==='favorites')loadFavorites();else renderDiscover()}
 function renderDiscover(){
- app.innerHTML=`<section class="intro"><h1>Discover music</h1><p>Search the iTunes catalogue, inspect albums and artists, and build your personal queue.</p></section>
- <form class="searchbar" onsubmit="event.preventDefault();searchMusic()"><input id="query" placeholder="Artist, track, or album" value="${escapeHtml(query)}" autocomplete="off"><button class="btn">Search</button></form>
- <div class="tabs">${[['song','Songs'],['album','Albums'],['musicArtist','Artists']].map(([key,label])=>`<button class="${entity===key?'active':''}" onclick="setEntity('${key}')">${label}</button>`).join('')}</div>
- <div id="results"></div>`;
+ app.innerHTML=`<section class="intro"><span class="eyebrow">The mman music room</span><h1>Discover music</h1><p>Search the catalogue, collect the records you love, and keep your own download queue.</p></section>
+ <form class="searchbar" onsubmit="event.preventDefault();searchMusic()"><input id="query" placeholder="Search songs, albums, or artists…" value="${escapeHtml(query)}" autocomplete="off" aria-label="Search music"><button class="btn">Search</button>${query?'<button class="btn secondary" type="button" onclick="clearSearch()">Clear</button>':''}</form>
+ <div class="toolbar"><div class="tabs">${[['song','Songs'],['album','Albums'],['musicArtist','Artists']].map(([key,label])=>`<button class="${entity===key?'active':''}" onclick="setEntity('${key}')">${label}</button>`).join('')}</div><div class="search-tools"><label class="muted" for="result-sort">Sort</label><select id="result-sort" onchange="sortResults(this.value)"><option value="relevance">Best match</option><option value="title">Title</option><option value="artist">Artist</option></select></div></div>
+ <div id="recent-searches">${recentMarkup()}</div><div class="section-rule"><span id="result-heading">${query?'Search results':'Search the catalogue'}</span></div>
+ <div id="results">${query?'<div class="empty"><strong>Ready when you are</strong>Press Search to look up this term.</div>':'<div class="empty"><strong>A good record is worth keeping</strong>Search for a song, album, or artist to get started.</div>'}</div>`;
 }
 async function setEntity(next){entity=next;renderDiscover();if(query)await searchMusic()}
 async function searchMusic(){
  query=$('#query').value.trim();if(!query)return;
  $('#results').innerHTML='<div class="empty">Searching catalogue…</div>';
- try{const data=await api('search',{term:query,entity,limit:50});$('#results').innerHTML=(data.results||[]).map(resultRow).join('')||'<div class="empty">No results found.</div>'}
- catch(error){$('#results').innerHTML=`<div class="empty">${escapeHtml(error.message)}</div>`}
+ $('#result-heading').textContent=`Searching for “${query}”…`;
+ try{const data=await api('search',{term:query,entity,limit:50});currentResults=data.results||[];recentSearches=[query,...recentSearches.filter(item=>item.toLowerCase()!==query.toLowerCase())].slice(0,6);try{localStorage.setItem(RECENT_KEY,JSON.stringify(recentSearches))}catch{}$('#recent-searches').innerHTML=recentMarkup();$('#result-heading').textContent=`${currentResults.length} ${entity==='musicArtist'?'artists':entity==='album'?'albums':'songs'} found`;renderResults()}
+ catch(error){$('#result-heading').textContent='Search unavailable';$('#results').innerHTML=`<div class="empty">${escapeHtml(error.message)}</div>`}
+}
+function recentMarkup(){return recentSearches.length?`<div class="recent-searches"><span class="muted">Recent:</span>${recentSearches.map(term=>`<button type="button" onclick="useRecent(${escapeHtml(JSON.stringify(term))})">${escapeHtml(term)}</button>`).join('')}<button type="button" onclick="clearRecent()">Clear history</button></div>`:''}
+function useRecent(term){query=term;renderDiscover();$('#query').focus();searchMusic()}
+function clearRecent(){recentSearches=[];try{localStorage.removeItem(RECENT_KEY)}catch{}$('#recent-searches').innerHTML=''}
+function clearSearch(){query='';currentResults=[];renderDiscover();$('#query').focus()}
+function sortResults(sort){
+ if(sort==='title')currentResults.sort((a,b)=>(a.trackName||a.collectionName||a.artistName||'').localeCompare(b.trackName||b.collectionName||b.artistName||''));
+ if(sort==='artist')currentResults.sort((a,b)=>(a.artistName||'').localeCompare(b.artistName||''));
+ if(sort==='relevance')searchMusic();
+ if(sort!=='relevance')renderResults();
+}
+function renderResults(){
+ $('#results').innerHTML=currentResults.map(resultRow).join('')||'<div class="empty"><strong>No matches found</strong>Try a shorter title, another spelling, or a different catalogue tab.</div>';
 }
 function resultRow(item){
  if(item.wrapperType==='artist')return `<article class="track"><img alt="" src="${escapeHtml(item.artwork||'')}"><div class="track-info"><strong>${escapeHtml(item.artistName)}</strong><span>${escapeHtml(item.primaryGenreName||'Artist')}</span></div><div class="actions"><button class="btn secondary" onclick="openArtist(${Number(item.artistId)})">Albums</button><button class="btn" onclick="queueAdd('artist',${Number(item.artistId)})">Queue artist</button></div></article>`;
@@ -104,7 +133,7 @@ async function openArtist(id){
 }
 async function queueAdd(type,id){
  if(!user){showAuth();toast('Sign in to make a personal queue');return}
- try{const result=await api('queue_add',{}, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,id})});toast(`Added ${result.added} track${result.added===1?'':'s'} to your queue`)}
+ try{const result=await api('queue_add',{}, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,id})});toast(`Added ${result.added} track${result.added===1?'':'s'} to your queue`);if(page==='queue')loadQueue()}
  catch(error){toast(error.message)}
 }
 async function toggleFavorite(trackId){
@@ -112,12 +141,34 @@ async function toggleFavorite(trackId){
  try{const result=await api('favorite',{}, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId})});toast(result.favorite?'Added to favorites':'Removed from favorites');if(page==='favorites')loadFavorites()}
  catch(error){toast(error.message)}
 }
-function renderQueue(){app.innerHTML=`<section class="intro"><h1>My queue</h1><p>Only tracks you added are shown here. Follow the download progress or listen when a Bale upload is ready.</p></section><div class="toolbar"><div class="filters"><label for="queue-status">Status</label><select id="queue-status" onchange="queueStatus=this.value;queuePage=1;loadQueue()"><option value="">All statuses</option>${['queued','searching','downloading','lyrics','tagging','uploading_bale','uploading_telegram','done','failed'].map(status=>`<option value="${status}" ${status===queueStatus?'selected':''}>${status.replaceAll('_',' ')}</option>`).join('')}</select></div><span class="muted" id="queue-count"></span></div><div id="queue-items"></div><div class="pager" id="queue-pager"></div>`;loadQueue()}
+function renderQueue(){app.innerHTML=`<section class="intro"><span class="eyebrow">Your private library</span><h1>My queue</h1><p>Only tracks you added are shown here. Download progress and upload IDs belong to your account.</p></section><div class="identity-note">Personal queue · These items are scoped to your signed-in account; other listeners’ queue entries are never shown here.</div><div class="dashboard" id="queue-summary"></div><div class="toolbar"><div class="filters"><label for="queue-status">Show</label><select id="queue-status" onchange="queueStatus=this.value;queuePage=1;loadQueue()"><option value="">All your tracks</option>${['queued','searching','downloading','lyrics','tagging','uploading_bale','uploading_telegram','done','failed'].map(status=>`<option value="${status}" ${status===queueStatus?'selected':''}>${status.replaceAll('_',' ')}</option>`).join('')}</select></div><div class="search-tools"><span class="muted" id="queue-count"></span><button class="btn secondary" onclick="loadQueue()">Refresh</button><button class="btn secondary" onclick="exportQueue()">Export CSV</button></div></div><div id="queue-items"></div><div class="pager" id="queue-pager"></div>`;loadQueue()}
 async function loadQueue(){
- if(!user){app.innerHTML='<section class="auth"><h2>Sign in to see your queue</h2><button class="btn" onclick="showAuth()">Sign in or create account</button></section>';clearInterval(pollTimer);return}
- try{const data=await api('queue_list',{page:queuePage,per_page:25,status:queueStatus});$('#queue-count').textContent=`${data.total} tracks`;$('#queue-items').innerHTML=data.items.map(item=>`${trackRow(item)}<div class="status">${escapeHtml(item.status.replaceAll('_',' '))} · ${Number(item.progress)}% ${item.message?`· ${escapeHtml(item.message)}`:''}${item.bale_message_id?` · Bale message ID: ${escapeHtml(item.bale_message_id)}`:''}${item.bale_file_id?` · Bale file ID: ${escapeHtml(item.bale_file_id)}`:''}<div class="progress ${item.status==='failed'?'failed':''}"><i style="width:${Number(item.progress)}%"></i></div><div class="actions">${item.telegram_url?`<a href="${escapeHtml(item.telegram_url)}" target="_blank" rel="noopener">Telegram</a>`:''}${item.bale_url?`<a href="${escapeHtml(item.bale_url)}" target="_blank" rel="noopener">Bale post</a>`:''}${['queued','failed','done'].includes(item.status)?`<button class="btn danger" onclick="removeQueue(${Number(item.id)})">Remove</button>`:''}</div></div>`).join('')||'<div class="empty">Your queue is empty. Search for music and add tracks.</div>';
+ if(!user){app.innerHTML='<section class="auth"><span class="eyebrow">A private collection</span><h2>Sign in to see your queue</h2><p class="muted">Your queue is personal and visible only to you.</p><button class="btn" onclick="showAuth()">Sign in or create account</button></section>';clearInterval(pollTimer);return}
+ try{const data=await api('queue_list',{page:queuePage,per_page:25,status:queueStatus});renderQueueSummary(data.status_counts||{});$('#queue-count').textContent=`${data.total} ${data.total===1?'track':'tracks'}${queueStatus?' · '+queueStatus.replaceAll('_',' '):''}`;$('#queue-items').innerHTML=data.items.map(item=>`${trackRow(item)}<div class="status"><strong>${escapeHtml(item.status.replaceAll('_',' '))}</strong> · ${Number(item.progress)}% ${item.message?`· ${escapeHtml(item.message)}`:''}${item.bale_message_id?` · Bale message ID: ${escapeHtml(item.bale_message_id)}`:''}${item.bale_file_id?` · Bale file ID: ${escapeHtml(item.bale_file_id)}`:''}<div class="progress ${item.status==='failed'?'failed':''}"><i style="width:${Number(item.progress)}%"></i></div><div class="actions">${item.telegram_url?`<a href="${escapeHtml(item.telegram_url)}" target="_blank" rel="noopener">Telegram</a>`:''}${item.bale_url?`<a href="${escapeHtml(item.bale_url)}" target="_blank" rel="noopener">Bale post</a>`:''}${item.status==='failed'?`<button class="btn secondary" onclick="queueAdd('track',${Number(item.track_id)})">Retry</button>`:''}${['queued','failed','done'].includes(item.status)?`<button class="btn danger" onclick="removeQueue(${Number(item.id)})">Remove</button>`:''}</div></div>`).join('')||`<div class="empty"><strong>${queueStatus?'No '+escapeHtml(queueStatus.replaceAll('_',' '))+' tracks':'Your queue is empty'}</strong>${queueStatus?'Choose another status or view all tracks.':'Search the catalogue and add songs, albums, or artists to your personal queue.'}<p><button class="btn secondary" onclick="navigate('discover')">Discover music</button></p></div>`;
  $('#queue-pager').innerHTML=data.pages>1?`<button class="btn secondary" ${queuePage<=1?'disabled':''} onclick="queuePage--;loadQueue()">Previous</button>Page ${data.page} / ${data.pages}<button class="btn secondary" ${queuePage>=data.pages?'disabled':''} onclick="queuePage++;loadQueue()">Next</button>`:'';
  }catch(error){$('#queue-items').innerHTML=`<div class="empty">${escapeHtml(error.message)} <button class="btn secondary" onclick="showAuth()">Sign in</button></div>`}
+}
+function renderQueueSummary(counts){
+ const active=Object.entries(counts).filter(([status])=>!['done','failed'].includes(status)).reduce((sum,[,count])=>sum+count,0);
+ const cards=[['','All tracks',Object.values(counts).reduce((sum,count)=>sum+count,0)],['queued','Waiting',counts.queued||0],['downloading','In progress',active],['done','Completed',counts.done||0]];
+ $('#queue-summary').innerHTML=cards.map(([status,label,count])=>`<button class="stat-card ${queueStatus===status?'active':''}" onclick="queueStatus='${status}';queuePage=1;renderQueue()"><span>${label}</span><strong>${count}</strong></button>`).join('');
+}
+async function exportQueue(){
+ if(!user)return;
+ try{
+  const first=await api('queue_list',{page:1,per_page:100,status:queueStatus});
+  const items=[...first.items];
+  for(let pageNumber=2;pageNumber<=first.pages;pageNumber++){
+   const next=await api('queue_list',{page:pageNumber,per_page:100,status:queueStatus});
+   items.push(...next.items);
+  }
+  const columns=['name','artist_name','collection_name','status','progress','bale_file_id','bale_message_id','telegram_file_id'];
+  const csvValue=value=>{let text=String(value??'');if(/^[\s]*[=+\-@]/.test(text))text="'"+text;return `"${text.replaceAll('"','""')}"`};
+  const csv=[columns.join(','),...items.map(item=>columns.map(key=>csvValue(item[key])).join(','))].join('\r\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download=`mman-queue-${new Date().toISOString().slice(0,10)}.csv`;link.click();URL.revokeObjectURL(url);
+  toast(`Exported ${items.length} personal queue tracks`);
+ }catch(error){toast(`Could not export queue: ${error.message}`)}
 }
 async function removeQueue(queueId){try{await api('queue_remove',{}, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({queue_id:queueId})});toast('Removed from your queue');loadQueue()}catch(error){toast(error.message)}}
 async function loadFavorites(){
