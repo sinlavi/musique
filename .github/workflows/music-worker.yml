@@ -57,6 +57,52 @@ jobs:
             sudo apt-get install --yes ffmpeg
           fi
           python -m pip install --requirement bot/requirements.txt
+      - name: Set up Cloudflare WARP proxy when no proxy is configured
+        env:
+          YOUTUBE_PROXY: ${{ secrets.YOUTUBE_PROXY }}
+        run: |
+          set -e
+          use_direct_fallback() {
+            echo "::warning::Could not start Cloudflare WARP; YouTube downloads will try a direct connection."
+            echo "YOUTUBE_PROXY=" >> "$GITHUB_ENV"
+            exit 0
+          }
+
+          if [ -n "$YOUTUBE_PROXY" ]; then
+            echo "Using the configured YOUTUBE_PROXY."
+            exit 0
+          fi
+
+          if ! command -v warp-cli >/dev/null 2>&1; then
+            sudo apt-get update || use_direct_fallback
+            sudo apt-get install --yes curl gpg lsb-release || use_direct_fallback
+            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
+              | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg \
+              || use_direct_fallback
+            echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" \
+              | sudo tee /etc/apt/sources.list.d/cloudflare-client.list >/dev/null \
+              || use_direct_fallback
+            sudo apt-get update || use_direct_fallback
+            sudo apt-get install --yes cloudflare-warp || use_direct_fallback
+          fi
+
+          sudo systemctl enable --now warp-svc || use_direct_fallback
+          sudo warp-cli --accept-tos registration new || use_direct_fallback
+          sudo warp-cli mode proxy || use_direct_fallback
+          sudo warp-cli proxy port 40000 || use_direct_fallback
+          sudo warp-cli connect || use_direct_fallback
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 10 \
+              --socks5-hostname 127.0.0.1:40000 \
+              https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -qx 'warp=on'; then
+              echo "YOUTUBE_PROXY=socks5h://127.0.0.1:40000" >> "$GITHUB_ENV"
+              echo "Cloudflare WARP proxy is connected."
+              exit 0
+            fi
+            sleep 2
+          done
+          use_direct_fallback
       - name: Configure YouTube cookies
         env:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
