@@ -10,7 +10,7 @@ from balethon import Client as Bale
 
 API = os.getenv("API_URL", "https://mman.ir/api/index.php").strip()
 KEY = os.getenv("API_KEY", "")
-COOKIES = os.getenv("COOKIES", "cookies.txt")
+COOKIES = os.getenv("COOKIES", str(Path(__file__).with_name("cookies.txt")))
 BALE_TOKEN, BALE_CHAT = os.getenv("BALE_TOKEN"), os.getenv("BALE_CHAT")            # chat: channel id or @username
 TG_BOT_TOKEN, TG_CHAT = os.getenv("TG_BOT_TOKEN"), os.getenv("TG_CHAT")          # bot must be channel admin
 YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "socks5h://127.0.0.1:1080").strip()
@@ -30,6 +30,10 @@ DOWNLOAD_METHODS = {
 }
 DEFAULT_METHOD_ORDER = [8, 2, 3, 4, 5, 6, 7, 1]
 UA = {"User-Agent": "mman-queue-bot/1.0"}
+YOUTUBE_AUTH_COOKIE_NAMES = {
+    "SID", "SAPISID", "__Secure-1PSID", "__Secure-3PSID",
+    "__Secure-1PAPISID", "__Secure-3PAPISID",
+}
 
 def api(action, data=None):
     r = requests.post(f"{API}?action={action}", json=data or {}, headers={"X-API-Key": KEY}, timeout=30)
@@ -52,7 +56,8 @@ def find_video(yt, t):
 
 def _download_method_order():
     try:
-        preferred = int(METHOD_CACHE.read_text().strip())
+        cached_method = METHOD_CACHE.read_text().strip()
+        preferred = int(cached_method) if cached_method else None
     except FileNotFoundError:
         preferred = None
     except (OSError, ValueError) as e:
@@ -87,13 +92,16 @@ def _available_youtube_proxy():
 
 def _download_options(method, outdir, hook, proxy):
     clients, remote_component = DOWNLOAD_METHODS[method]
+    cookie_path = Path(COOKIES).expanduser().resolve()
+    if not cookie_path.is_file():
+        raise RuntimeError(f"YouTube cookies file not found: {cookie_path}")
     opts = {
         "format": "bestaudio/best",
         "outtmpl": f"{outdir}/src.%(ext)s",
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        "cookiefile": COOKIES,
+        "cookiefile": str(cookie_path),
         "progress_hooks": [hook],
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
@@ -112,6 +120,62 @@ def _download_options(method, outdir, hook, proxy):
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
         }
     return opts
+
+def validate_cookies_file():
+    cookie_path = Path(COOKIES).expanduser().resolve()
+    if not cookie_path.is_file():
+        raise RuntimeError(f"YouTube cookies file not found: {cookie_path}")
+
+    cookie_count = 0
+    auth_cookie_names = set()
+    try:
+        with cookie_path.open(encoding="utf-8-sig") as cookies:
+            for line in cookies:
+                line = line.rstrip("\r\n")
+                if not line or ("\t" not in line) or (
+                    line.startswith("#") and not line.startswith("#HttpOnly_")
+                ):
+                    continue
+                fields = line.split("\t")
+                if len(fields) != 7:
+                    continue
+                domain = fields[0].removeprefix("#HttpOnly_").lstrip(".").lower()
+                name = fields[5]
+                cookie_count += 1
+                if (
+                    domain == "youtube.com"
+                    or domain.endswith(".youtube.com")
+                    or domain == "google.com"
+                    or domain.endswith(".google.com")
+                ):
+                    if name in YOUTUBE_AUTH_COOKIE_NAMES:
+                        auth_cookie_names.add(name)
+    except (OSError, UnicodeError) as e:
+        raise RuntimeError(f"Unable to read YouTube cookies file {cookie_path}: {e}") from e
+
+    if cookie_count == 0:
+        raise RuntimeError(
+            f"YouTube cookies file is empty or not in Netscape format: {cookie_path}. "
+            "Export cookies as a Netscape-format cookies.txt file."
+        )
+    if not auth_cookie_names:
+        raise RuntimeError(
+            "YouTube cookies file has no recognized YouTube sign-in cookies. "
+            "Export a fresh Netscape-format cookies.txt while signed in to YouTube."
+        )
+    print(
+        f"Loaded YouTube cookies file: {cookie_path} "
+        f"({cookie_count} cookies; sign-in cookies present)",
+        flush=True,
+    )
+
+def _is_cookie_auth_error(error):
+    message = str(error).lower()
+    return (
+        "sign in to confirm" in message
+        or "use --cookies-from-browser" in message
+        or "cookies are no longer valid" in message
+    )
 
 def download(vid, outdir, hook):
     proxy = _available_youtube_proxy()
@@ -136,6 +200,12 @@ def download(vid, outdir, hook):
             except Exception as e:
                 failures.append(f"method {method} ({route_name}): {e}")
                 print(f"YouTube download method {method} failed via {route_name}: {e}")
+                if _is_cookie_auth_error(e):
+                    raise RuntimeError(
+                        "YouTube rejected the configured cookies. Re-export a fresh "
+                        "Netscape-format cookies.txt while signed in to YouTube, then "
+                        "replace the YOUTUBE_COOKIES GitHub Secret."
+                    ) from e
     raise RuntimeError("All YouTube download methods failed: " + " | ".join(failures))
 
 # ---------- Lyrics ----------
@@ -276,7 +346,7 @@ def validate_config():
     }
     missing = [name for name, value in required.items() if not value]
     if missing: raise RuntimeError("Missing required configuration: " + ", ".join(missing))
-    if not Path(COOKIES).is_file(): raise RuntimeError(f"YouTube cookies file not found: {COOKIES}")
+    validate_cookies_file()
 
 async def main(max_jobs=0, poll_seconds=5, run_seconds=0):
     validate_config()
