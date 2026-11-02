@@ -62,47 +62,45 @@ jobs:
           YOUTUBE_PROXY: ${{ secrets.YOUTUBE_PROXY }}
         run: |
           set -e
-          use_direct_fallback() {
-            echo "::warning::Could not start Cloudflare WARP; YouTube downloads will try a direct connection."
-            echo "YOUTUBE_PROXY=" >> "$GITHUB_ENV"
-            exit 0
-          }
-
           if [ -n "$YOUTUBE_PROXY" ]; then
             echo "Using the configured YOUTUBE_PROXY."
             exit 0
           fi
 
-          if ! command -v warp-cli >/dev/null 2>&1; then
-            sudo apt-get update || use_direct_fallback
-            sudo apt-get install --yes curl gpg lsb-release || use_direct_fallback
-            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
-              | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg \
-              || use_direct_fallback
-            echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" \
-              | sudo tee /etc/apt/sources.list.d/cloudflare-client.list >/dev/null \
-              || use_direct_fallback
-            sudo apt-get update || use_direct_fallback
-            sudo apt-get install --yes cloudflare-warp || use_direct_fallback
-          fi
+          docker pull caomingjun/warp:latest
+          docker rm -f warp 2>/dev/null || true
+          docker network inspect warp-net >/dev/null 2>&1 || docker network create warp-net
+          docker run -d \
+            --name warp \
+            --restart=always \
+            --network warp-net \
+            -p 1080:1080 \
+            --cap-add NET_ADMIN \
+            --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+            --sysctl net.ipv4.conf.all.src_valid_mark=1 \
+            caomingjun/warp:latest
 
-          sudo systemctl enable --now warp-svc || use_direct_fallback
-          sudo warp-cli --accept-tos registration new || use_direct_fallback
-          sudo warp-cli mode proxy || use_direct_fallback
-          sudo warp-cli proxy port 40000 || use_direct_fallback
-          sudo warp-cli connect || use_direct_fallback
-
+          warp_ready=false
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error --max-time 10 \
-              --socks5-hostname 127.0.0.1:40000 \
-              https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -qx 'warp=on'; then
-              echo "YOUTUBE_PROXY=socks5h://127.0.0.1:40000" >> "$GITHUB_ENV"
-              echo "Cloudflare WARP proxy is connected."
-              exit 0
+            if curl -x socks5h://127.0.0.1:1080 \
+              https://cloudflare.com/cdn-cgi/trace --max-time 5 --silent |
+              grep -q 'warp=on'; then
+              echo "Cloudflare WARP proxy is ready."
+              warp_ready=true
+              break
             fi
-            sleep 2
+            echo "Waiting for WARP ($attempt/30)"
+            sleep 5
           done
-          use_direct_fallback
+          if [ "$warp_ready" != true ]; then
+            echo "::error::Cloudflare WARP proxy did not become ready."
+            docker logs warp || true
+            exit 1
+          fi
+          curl -x socks5h://127.0.0.1:1080 \
+            https://cloudflare.com/cdn-cgi/trace --max-time 10 --silent |
+            grep -E '^(ip|warp)='
+          echo "YOUTUBE_PROXY=socks5h://127.0.0.1:1080" >> "$GITHUB_ENV"
       - name: Configure YouTube cookies
         env:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}

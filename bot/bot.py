@@ -65,7 +65,13 @@ def _download_method_order():
         preferred = None
     if preferred not in DOWNLOAD_METHODS:
         return DEFAULT_METHOD_ORDER.copy()
-    return [preferred] + [method for method in DEFAULT_METHOD_ORDER if method != preferred]
+    ordered_methods = [preferred] + [method for method in DEFAULT_METHOD_ORDER if method != preferred]
+    print(
+        f"Trying cached YouTube method {preferred} first, "
+        f"then fallback methods {ordered_methods[1:]}",
+        flush=True,
+    )
+    return ordered_methods
 
 def _cache_download_method(method):
     try:
@@ -181,7 +187,9 @@ def download(vid, outdir, hook):
     proxy = _available_youtube_proxy()
     routes = [proxy, None] if proxy else [None]
     failures = []
-    for method in _download_method_order():
+    cookie_auth_rejected = False
+    methods = _download_method_order()
+    for method in methods:
         for route in routes:
             route_name = "WARP/SOCKS proxy" if route else "direct"
             print(f"Trying YouTube download method {method} via {route_name}")
@@ -201,11 +209,13 @@ def download(vid, outdir, hook):
                 failures.append(f"method {method} ({route_name}): {e}")
                 print(f"YouTube download method {method} failed via {route_name}: {e}")
                 if _is_cookie_auth_error(e):
-                    raise RuntimeError(
-                        "YouTube rejected the configured cookies. Re-export a fresh "
-                        "Netscape-format cookies.txt while signed in to YouTube, then "
-                        "replace the YOUTUBE_COOKIES GitHub Secret."
-                    ) from e
+                    cookie_auth_rejected = True
+    if cookie_auth_rejected:
+        raise RuntimeError(
+            f"YouTube rejected the configured cookies with all {len(methods)} "
+            "download methods. Re-export a fresh Netscape-format cookies.txt while "
+            "signed in to YouTube, then replace the YOUTUBE_COOKIES GitHub Secret."
+        )
     raise RuntimeError("All YouTube download methods failed: " + " | ".join(failures))
 
 # ---------- Lyrics ----------

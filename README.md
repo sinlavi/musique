@@ -32,7 +32,7 @@ Add the following repository Actions secrets. The workflow starts every two hour
 
 The Telegram bot must be permitted to post in its destination channel. The worker sends audio using Telegram's Bot API; no Telethon session or Telegram application credentials are needed. Do not commit credentials or `cookies.txt` to the repository. The workflow ensures FFmpeg is installed, writes the cookies secret to a temporary runner file, and restores/saves the last successful YouTube download method using the Actions cache.
 
-The worker tries eight yt-dlp YouTube client profiles, starting with the last one that succeeded. In GitHub Actions, Cloudflare WARP is installed and started in local-proxy mode when `YOUTUBE_PROXY` is not set; the workflow tests the proxy before using it. If WARP setup fails, it logs a warning and downloads fall back to a direct connection. Set the optional `YOUTUBE_PROXY` secret to use your own reachable SOCKS5/HTTP proxy instead.
+The worker tries eight yt-dlp YouTube client profiles, starting with the last one that succeeded; if it fails, it continues through the other seven methods. In GitHub Actions, the workflow starts the same Docker-based Cloudflare WARP SOCKS proxy used by `sinlavi/musicman_crawler` when `YOUTUBE_PROXY` is not set, and verifies `warp=on` before starting the worker. If WARP cannot start, the workflow fails rather than silently switching to a direct connection. Set the optional `YOUTUBE_PROXY` secret to use your own reachable SOCKS5/HTTP proxy instead.
 
 ## Run the worker locally
 
