@@ -19,7 +19,7 @@ Existing MySQL data is not migrated automatically. Export/import it into SQLite 
 
 ## GitHub Actions worker
 
-Add the following repository Actions secrets. The workflow runs every two hours and can also be started with **Actions > mman queue worker > Run workflow**. Each run handles at most ten jobs and exits when the queue is empty. It checks all required secrets before installing dependencies. Python packages use the `setup-python` pip cache, keyed to `bot/requirements.txt`; FFmpeg is installed only if it is not already available on the runner.
+Add the following repository Actions secrets. The workflow starts every two hours and can also be started with **Actions > mman queue worker > Run workflow**. Each run polls the queue for two hours, checking every 30 seconds even when the queue is empty, then exits before the next scheduled run. It checks all required secrets before installing dependencies. Python packages use the `setup-python` pip cache, keyed to `bot/requirements.txt`; FFmpeg is installed only if it is not already available on the runner.
 
 | Secret | Value |
 | --- | --- |
@@ -39,10 +39,10 @@ The worker tries eight yt-dlp YouTube client profiles, starting with the last on
 Install FFmpeg and `bot/requirements.txt`, set the worker environment variables above, and place the Netscape cookies file at `bot/cookies.txt` (or set `COOKIES`). Run one batch with:
 
 ```sh
-python bot/bot.py --max-jobs 10
+python bot/bot.py --run-seconds 7200 --poll-seconds 30
 ```
 
-Omit `--max-jobs` to keep polling continuously.
+Omit `--run-seconds` to keep polling continuously, or use `--max-jobs` to process a finite batch.
 
 ## Always-on worker
 

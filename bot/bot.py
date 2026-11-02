@@ -1,6 +1,6 @@
 """mman queue worker: YouTube Music -> mp3 (+tags, lyrics) -> Bale channel -> Telegram channel.
 Needs ffmpeg installed. Put your exported YouTube cookies in cookies.txt next to this file."""
-import argparse, asyncio, os, re, shutil, socket, tempfile
+import argparse, asyncio, os, re, shutil, socket, tempfile, time
 from pathlib import Path
 from urllib.parse import urlsplit
 import requests, yt_dlp
@@ -278,32 +278,71 @@ def validate_config():
     if missing: raise RuntimeError("Missing required configuration: " + ", ".join(missing))
     if not Path(COOKIES).is_file(): raise RuntimeError(f"YouTube cookies file not found: {COOKIES}")
 
-async def main(max_jobs=0, poll_seconds=5):
+async def main(max_jobs=0, poll_seconds=5, run_seconds=0):
     validate_config()
     yt = YTMusic()
     bale = Bale(BALE_TOKEN)
     processed = 0
     failures = 0
+    queue_errors = 0
+    started_at = time.monotonic()
+    deadline = started_at + run_seconds if run_seconds > 0 else None
+    print(
+        f"Worker started: max_jobs={max_jobs or 'unlimited'}, "
+        f"run_seconds={run_seconds or 'unlimited'}, poll_seconds={poll_seconds}",
+        flush=True,
+    )
     await bale.connect()
     try:
-        while max_jobs <= 0 or processed < max_jobs:
+        while (max_jobs <= 0 or processed < max_jobs) and (
+            deadline is None or time.monotonic() < deadline
+        ):
             try: job = (await asyncio.to_thread(api, "queue_next")).get("job")
             except Exception as e:
-                print("queue error:", e)
-                if max_jobs > 0: raise
-                await asyncio.sleep(poll_seconds)
+                queue_errors += 1
+                print(f"Queue check failed: {e}", flush=True)
+                if max_jobs > 0 and deadline is None: raise
+                sleep_for = poll_seconds if deadline is None else min(
+                    poll_seconds, max(0, deadline - time.monotonic())
+                )
+                if sleep_for <= 0: break
+                print(f"Retrying queue check in {sleep_for:.0f}s", flush=True)
+                await asyncio.sleep(sleep_for)
                 continue
-            if not job: break
+            if not job:
+                sleep_for = poll_seconds if deadline is None else min(
+                    poll_seconds, max(0, deadline - time.monotonic())
+                )
+                if sleep_for <= 0: break
+                print(f"Queue is empty; checking again in {sleep_for:.0f}s", flush=True)
+                await asyncio.sleep(sleep_for)
+                continue
+            track = job.get("track") or {}
+            print(
+                f"Processing queue_id={job.get('queue_id')} "
+                f"track_id={track.get('track_id')} "
+                f"{track.get('artist_name', '')} - {track.get('name', '')}",
+                flush=True,
+            )
             if not await process(job, yt, bale): failures += 1
             processed += 1
     finally:
         await bale.disconnect()
-    if max_jobs > 0 and failures:
+    elapsed = int(time.monotonic() - started_at)
+    print(
+        f"Worker stopped after {elapsed}s: processed={processed}, "
+        f"failed={failures}, queue_errors={queue_errors}",
+        flush=True,
+    )
+    if (max_jobs > 0 or run_seconds > 0) and failures:
         raise RuntimeError(f"{failures} queue job(s) failed")
+    if (max_jobs > 0 or run_seconds > 0) and queue_errors:
+        raise RuntimeError(f"Queue API failed {queue_errors} time(s) during this run")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process queued tracks and upload them to configured channels.")
     parser.add_argument("--max-jobs", type=int, default=0, help="Exit after this many jobs; 0 polls forever")
     parser.add_argument("--poll-seconds", type=int, default=5, help="Delay between queue checks in continuous mode")
+    parser.add_argument("--run-seconds", type=int, default=0, help="Stop polling after this many seconds; 0 runs forever")
     args = parser.parse_args()
-    asyncio.run(main(max(0, args.max_jobs), max(1, args.poll_seconds)))
+    asyncio.run(main(max(0, args.max_jobs), max(1, args.poll_seconds), max(0, args.run_seconds)))

@@ -12,7 +12,7 @@ concurrency:
 jobs:
   process-queue:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 130
     env:
       API_URL: ${{ secrets.API_URL || 'https://mman.ir/api/index.php' }}
       API_KEY: ${{ secrets.API_KEY || 'API_KEY' }}
@@ -74,7 +74,7 @@ jobs:
           restore-keys: |
             mman-download-method-${{ runner.os }}-
       - name: Process queued tracks
-        run: python bot/bot.py --max-jobs 10
+        run: python -u bot/bot.py --run-seconds 7200 --poll-seconds 30
       - name: Save last working YouTube method
         if: always()
         uses: actions/cache/save@v4
