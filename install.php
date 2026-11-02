@@ -287,7 +287,7 @@ if (($_SESSION['mman_installer_failures'] ?? 0) >= 5) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#f3f0e8">
+<meta name="theme-color" content="#f6f7f5">
 <title>mman host installer</title>
 <style>
 body{margin:0;background:#f3f0e8;color:#252c26;font:15px/1.55 system-ui,sans-serif}.wrap{max-width:760px;margin:36px auto;padding:0 18px 50px}h1{font:32px Georgia,serif;color:#244331}h2{font:22px Georgia,serif}.panel{background:#fffdf8;border:1px solid #d9d4c7;padding:22px;margin:18px 0}.notice{padding:12px;background:#fff2d6;border:1px solid #ddbd77}.error{padding:12px;background:#fbe9e6;border:1px solid #cc8d80}.success{padding:12px;background:#e8f4e9;border:1px solid #8bb090}label{display:block;font-weight:600;margin:12px 0 5px}input{width:100%;padding:10px;border:1px solid #c9c4b8;border-radius:3px;box-sizing:border-box;font:inherit}input[type=checkbox]{width:auto;margin-right:8px}.btn{background:#365d48;color:white;border:0;border-radius:3px;padding:11px 16px;font:inherit;cursor:pointer;margin-top:14px}.hint{color:#77796f;font-size:13px}.key{word-break:break-all;background:#eeeae0;padding:10px;font-family:monospace}
@@ -295,9 +295,14 @@ body{margin:0;background:#f3f0e8;color:#252c26;font:15px/1.55 system-ui,sans-ser
 body{background:var(--paper);color:var(--ink);font:15px/1.5 Georgia,"Times New Roman",serif}.wrap{max-width:1100px;margin:auto;padding:0 24px 50px}
 .masthead{display:flex;align-items:center;justify-content:space-between;border-bottom:3px double var(--line);padding:20px 0 15px}.brand{font-size:30px;font-weight:bold;letter-spacing:-1px;color:var(--green-dark)}.brand small{font-size:11px;display:block;font-weight:normal;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}.mast-label{font:11px Arial,sans-serif;letter-spacing:1.8px;color:var(--muted)}
 .intro{max-width:760px;border-bottom:1px solid var(--line);padding:28px 0 18px;margin:0 auto 20px}.eyebrow{font:11px Arial,sans-serif;letter-spacing:1.8px;text-transform:uppercase;color:var(--gold)}h1{font:normal 29px Georgia,serif;margin:5px 0 4px;color:var(--ink)}
-.panel{max-width:760px;background:var(--panel);border-color:var(--line);margin:18px auto;box-shadow:var(--shadow)}.btn{border:1px solid var(--green);font:15px Georgia,serif}.btn:hover{background:var(--green-dark)}
+.panel{max-width:760px;background:var(--panel);border-color:var(--line);margin:18px auto;box-shadow:var(--shadow)}h1,h2{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}h1{font-size:clamp(27px,4vw,36px);font-weight:680;letter-spacing:-1.1px}.btn{border:1px solid var(--green);font:650 13px ui-sans-serif,system-ui,sans-serif}.btn:hover{background:var(--green-dark)}
 input{background:#fffefa;color:var(--ink);font:15px Arial,sans-serif}input:focus{outline:2px solid #8eaa96;outline-offset:1px}.key{border:1px solid var(--line)}.footer{max-width:760px;margin:22px auto;color:var(--muted);font-size:13px}
 @media(max-width:680px){.wrap{padding:0 14px 35px}.masthead{align-items:flex-start;gap:12px;flex-wrap:wrap}.brand{font-size:25px}.intro{padding-top:22px}.panel{padding:16px}}
+body{background:#f6f7f5;color:#17231d;font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:1100px}.brand{display:flex;align-items:center;gap:11px;font-size:23px;letter-spacing:-1.2px}.brand:before{content:"m";display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:#316348;color:white;font-size:20px;letter-spacing:0}
+.brand small{font-size:10px;letter-spacing:1.5px}.masthead{border-bottom:1px solid #e4e9e5}.intro{border-color:#e4e9e5}.eyebrow{color:#316348}
+.panel{border:1px solid #e4e9e5;border-radius:14px;background:#fff;box-shadow:0 12px 35px #18332612}.btn{min-height:40px;border-radius:9px;background:#316348}.btn:hover{background:#214b34}
+input{min-height:42px;border-color:#e4e9e5;border-radius:9px;background:#fff;font:14px Arial,sans-serif}.notice{border-color:#eedfb9;border-radius:10px;background:#fff9e9}.error{border-color:#efd8d4;border-radius:10px;background:#fff5f3}.success{border-color:#dce9df;border-radius:10px;background:#f3f8f4}.key{border:1px solid #e4e9e5;border-radius:9px;background:#f0f3f0}.footer{max-width:760px;margin:20px auto;color:#758078;font-size:12px}
 </style>
 </head>
 <body><main class="wrap">
