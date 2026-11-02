@@ -204,7 +204,7 @@ function tracks_for($pdo, $type, $id) {
   }
   save_results($pdo, $res); $tracks = [];
   foreach ($res as $r) if (($r['wrapperType'] ?? '') === 'track' && ($r['kind'] ?? '') === 'song') $tracks[$r['trackId']] = 1;
-  return array_keys($tracks);
+  return array_slice(array_keys($tracks), 0, 300);
 }
 function lyrics_row($pdo, $tid) {
   $s = $pdo->prepare('SELECT lyrics_synced, lyrics_plain, lyrics_source FROM track_files WHERE track_id=?');
@@ -267,6 +267,27 @@ switch ($action) {
   case 'lookup': { // id + entity=song|album ; album id -> its songs, artist id -> its albums
     $res = itunes('lookup', ['id' => (int)$_GET['id'], 'entity' => $_GET['entity'] ?? 'song', 'limit' => 200]);
     save_results($pdo, $res); out(['results' => slim(attach_bale_playback($pdo, $res))]);
+  }
+  case 'bot_queue_add': { // POST {type: track|collection|artist, id}, reserved for the PHP webhook
+    need_key();
+    $b = body(); $type = $b['type'] ?? ''; $id = (int)($b['id'] ?? 0);
+    if (!in_array($type, ['track', 'collection', 'artist'], true) || $id < 1) out(['error' => 'bad_request'], 400);
+    $ids = tracks_for($pdo, $type, $id);
+    $insert = $pdo->prepare('INSERT INTO queue (user_id, track_id)
+      SELECT NULL, ? WHERE NOT EXISTS (SELECT 1 FROM queue WHERE user_id IS NULL AND track_id=?)');
+    $added = 0;
+    $pdo->beginTransaction();
+    try {
+      foreach ($ids as $trackId) {
+        $insert->execute([$trackId, $trackId]);
+        $added += $insert->rowCount();
+      }
+      $pdo->commit();
+    } catch (Throwable $e) {
+      $pdo->rollBack();
+      throw $e;
+    }
+    out(['added' => $added, 'track_ids' => $ids, 'limit' => 300]);
   }
   case 'queue_add': { // POST {type: track|collection|artist, id}
     $user = current_user(true);

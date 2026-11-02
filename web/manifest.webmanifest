@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "mman Music",
+  "short_name": "mman",
+  "description": "Discover music, organize your library, and keep tracks available offline.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#131316",
+  "theme_color": "#131316",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
