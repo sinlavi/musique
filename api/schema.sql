@@ -30,6 +30,39 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
+CREATE TABLE IF NOT EXISTS user_settings (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  settings_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  display_name TEXT NOT NULL DEFAULT '',
+  bio TEXT NOT NULL DEFAULT '',
+  avatar_url TEXT NOT NULL DEFAULT '',
+  is_public INTEGER NOT NULL DEFAULT 0 CHECK (is_public IN (0,1)),
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS ai_playlists (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  icon TEXT NOT NULL DEFAULT 'auto_awesome',
+  color TEXT NOT NULL DEFAULT 'primary',
+  source TEXT NOT NULL,
+  country TEXT NOT NULL DEFAULT 'us',
+  model TEXT,
+  tracks_json TEXT NOT NULL,
+  views INTEGER NOT NULL DEFAULT 0,
+  generated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ai_playlists_fresh ON ai_playlists(expires_at, generated_at DESC);
+CREATE TABLE IF NOT EXISTS ai_playlist_runs (
+  run_key TEXT PRIMARY KEY,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS queue (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -75,6 +108,17 @@ CREATE TABLE IF NOT EXISTS track_files (
   lyrics_synced TEXT, lyrics_plain TEXT, lyrics_source TEXT,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS track_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+  report_type TEXT NOT NULL CHECK (report_type IN ('track_file','lyrics')),
+  details TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','reviewed','resolved')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, track_id, report_type)
+);
+CREATE INDEX IF NOT EXISTS track_reports_status_created ON track_reports(status, created_at);
 
 CREATE TRIGGER IF NOT EXISTS artists_updated_at AFTER UPDATE ON artists
 WHEN NEW.updated_at = OLD.updated_at

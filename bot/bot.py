@@ -1,6 +1,7 @@
 """mman queue worker: YouTube Music -> mp3 (+tags, lyrics) -> Bale channel -> Telegram channel.
 Needs ffmpeg installed. Put your exported YouTube cookies in cookies.txt next to this file."""
-import argparse, asyncio, os, re, shutil, socket, tempfile, time
+import argparse, asyncio, os, re, shutil, socket, tempfile, time, unicodedata
+from difflib import SequenceMatcher
 from pathlib import Path
 from urllib.parse import urlsplit
 import requests, yt_dlp
@@ -44,15 +45,100 @@ def progress(qid, status, pct, msg=""):
     except Exception as e: print("progress error:", e)
 
 # ---------- YouTube Music ----------
+def _match_text(value):
+    value = unicodedata.normalize("NFKD", str(value or "").casefold())
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    value = re.sub(r"\b(official\s+(audio|video)|lyrics?|visuali[sz]er|4k|hd)\b", " ", value)
+    return " ".join(re.findall(r"[a-z0-9]+", value))
+
+def _similarity(left, right):
+    left, right = _match_text(left), _match_text(right)
+    if not left or not right:
+        return None
+    return SequenceMatcher(None, left, right, autojunk=False).ratio()
+
+def _candidate_album(candidate):
+    album = candidate.get("album")
+    if isinstance(album, dict):
+        return str(album.get("name") or album.get("title") or "")
+    return str(album or candidate.get("album_name") or "")
+
+def _candidate_artist(candidate):
+    artists = candidate.get("artists") or candidate.get("artist") or []
+    if isinstance(artists, str):
+        return artists
+    if isinstance(artists, dict):
+        artists = [artists]
+    if isinstance(artists, list):
+        return " ".join(str(item.get("name") or "") for item in artists if isinstance(item, dict))
+    return ""
+
+def _candidate_year(candidate):
+    album = candidate.get("album")
+    year = album.get("year") if isinstance(album, dict) else None
+    year = year or candidate.get("year") or candidate.get("release_year")
+    match = re.search(r"\b(19\d{2}|20\d{2})\b", str(year or ""))
+    return int(match.group(1)) if match else None
+
+def _track_year(track):
+    match = re.match(r"\s*(19\d{2}|20\d{2})", str(track.get("release_date") or ""))
+    return int(match.group(1)) if match else None
+
+def _candidate_score(candidate, track):
+    title_score = _similarity(track.get("name"), candidate.get("title"))
+    if title_score is None:
+        return None
+
+    fields = [(title_score, 0.48)]
+    artist_score = _similarity(track.get("artist_name"), _candidate_artist(candidate))
+    if artist_score is not None:
+        fields.append((artist_score, 0.12))
+
+    album_score = _similarity(track.get("collection_name"), _candidate_album(candidate))
+    if album_score is not None:
+        fields.append((album_score, 0.22))
+
+    expected_year, candidate_year = _track_year(track), _candidate_year(candidate)
+    if expected_year and candidate_year:
+        fields.append((max(0.0, 1.0 - abs(expected_year - candidate_year) / 4), 0.08))
+
+    expected_duration = (track.get("duration_ms") or 0) / 1000
+    candidate_duration = candidate.get("duration_seconds") or 0
+    if expected_duration > 0 and candidate_duration > 0:
+        tolerance = max(20, expected_duration * 0.12)
+        duration_score = max(0.0, 1.0 - abs(candidate_duration - expected_duration) / tolerance)
+        fields.append((duration_score, 0.10))
+
+    weight = sum(field_weight for _, field_weight in fields)
+    return sum(value * field_weight for value, field_weight in fields) / weight, title_score
+
 def find_video(yt, t):
-    q = f"{t['artist_name']} {t['name']}"
-    res = yt.search(q, filter="songs", limit=10)
+    q = " ".join(str(part) for part in (
+        t.get("name"), t.get("artist_name"), t.get("collection_name"), _track_year(t)
+    ) if part)
+    res = yt.search(q, filter="songs", limit=20)
     if not res: raise RuntimeError("No YouTube Music result")
-    want = (t["duration_ms"] or 0) / 1000
-    def score(r):
-        diff = abs((r.get("duration_seconds") or 0) - want) if want else 0
-        return diff - (5 if t["name"].lower() in r["title"].lower() else 0)
-    return min(res, key=score)["videoId"]
+    ranked = []
+    for candidate in res:
+        if not candidate.get("videoId"):
+            continue
+        score = _candidate_score(candidate, t)
+        if score:
+            ranked.append((score[0], score[1], candidate))
+    if not ranked:
+        raise RuntimeError("No YouTube Music result could be compared with the requested track")
+    best_score, title_score, best = max(ranked, key=lambda match: match[:2])
+    if title_score < 0.55 or best_score < 0.58:
+        raise RuntimeError(
+            "No sufficiently close YouTube Music match "
+            f"(best title match {title_score:.0%}, overall match {best_score:.0%})"
+        )
+    print(
+        f"Selected YouTube Music match for {t.get('artist_name')} - {t.get('name')} "
+        f"(title {title_score:.0%}, overall {best_score:.0%})",
+        flush=True,
+    )
+    return best["videoId"]
 
 def _download_method_order():
     try:

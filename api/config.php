@@ -9,4 +9,7 @@ return [
   'country' => getenv('ITUNES_COUNTRY') ?: 'us',
   'bale_channel_username' => getenv('BALE_CHANNEL_USERNAME') ?: '',
   'telegram_channel_username' => getenv('TELEGRAM_CHANNEL_USERNAME') ?: '',
+  'ai_playlists_api_key' => getenv('AI_PLAYLISTS_API_KEY') ?: '',
+  'ai_playlists_api_url' => getenv('AI_PLAYLISTS_API_URL') ?: 'https://api.groq.com/openai/v1/chat/completions',
+  'ai_playlists_model' => getenv('AI_PLAYLISTS_MODEL') ?: 'openai/gpt-oss-20b',
 ];

@@ -210,6 +210,284 @@ function lyrics_row($pdo, $tid) {
   $s = $pdo->prepare('SELECT lyrics_synced, lyrics_plain, lyrics_source FROM track_files WHERE track_id=?');
   $s->execute([$tid]); return $s->fetch();
 }
+function decorate_local_tracks($rows) {
+  foreach ($rows as &$row) {
+    $hasBaleFile = !empty($row['bale_file_id']);
+    $row['is_crawled'] = $hasBaleFile || !empty($row['telegram_file_id']);
+    $row['bale_stream_url'] = $hasBaleFile ? signed_bale_url((int)$row['track_id']) : null;
+    $row['wrapperType'] = 'track';
+    unset($row['bale_file_id'], $row['telegram_file_id']);
+  }
+  unset($row);
+  return $rows;
+}
+function popular_tracks($pdo, $limit) {
+  $s = $pdo->prepare("SELECT t.track_id,t.collection_id,t.artist_id,t.name,t.artist_name,t.collection_name,t.artwork,
+      t.duration_ms,t.track_number,t.track_count,t.disc_number,t.disc_count,t.release_date,t.genre,t.explicit,t.preview_url,
+      COALESCE(f.favorite_count,0) AS favorite_count,COALESCE(q.crawl_count,0) AS crawl_count,
+      COALESCE(p.playlist_count,0) AS playlist_count,tf.bale_file_id,tf.telegram_file_id
+    FROM tracks t
+    LEFT JOIN (SELECT track_id,COUNT(*) AS favorite_count FROM favorites GROUP BY track_id) f ON f.track_id=t.track_id
+    LEFT JOIN (SELECT track_id,COUNT(*) AS crawl_count FROM queue WHERE status='done' GROUP BY track_id) q ON q.track_id=t.track_id
+    LEFT JOIN (SELECT track_id,COUNT(*) AS playlist_count FROM playlist_tracks GROUP BY track_id) p ON p.track_id=t.track_id
+    LEFT JOIN track_files tf ON tf.track_id=t.track_id
+    ORDER BY (COALESCE(f.favorite_count,0)*3 + COALESCE(q.crawl_count,0)*2 + COALESCE(p.playlist_count,0)) DESC,
+      t.updated_at DESC,t.track_id DESC LIMIT ?");
+  $s->bindValue(1, $limit, PDO::PARAM_INT); $s->execute();
+  return decorate_local_tracks($s->fetchAll());
+}
+function fresh_tracks($pdo, $limit) {
+  $s = $pdo->prepare("SELECT t.track_id,t.collection_id,t.artist_id,t.name,t.artist_name,t.collection_name,t.artwork,
+      t.duration_ms,t.track_number,t.track_count,t.disc_number,t.disc_count,t.release_date,t.genre,t.explicit,t.preview_url,
+      tf.bale_file_id,tf.telegram_file_id FROM tracks t LEFT JOIN track_files tf ON tf.track_id=t.track_id
+    ORDER BY COALESCE(NULLIF(t.release_date,''), t.updated_at) DESC,t.track_id DESC LIMIT ?");
+  $s->bindValue(1, $limit, PDO::PARAM_INT); $s->execute();
+  return decorate_local_tracks($s->fetchAll());
+}
+function ai_playlist_slug($title, $suffix = '') {
+  $slug = strtolower(trim(preg_replace('/[^a-z0-9]+/i', '-', $title), '-'));
+  return substr($slug ?: 'music-mix', 0, 60) . ($suffix !== '' ? '-' . $suffix : '');
+}
+function ai_playlist_list($pdo, $includeExpired = false) {
+  $where = $includeExpired ? '' : "WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP";
+  $s = $pdo->query("SELECT id,slug,title,description,icon,color,source,country,model,tracks_json,views,generated_at,expires_at
+    FROM ai_playlists $where ORDER BY generated_at DESC,id DESC");
+  $items = [];
+  foreach ($s->fetchAll() as $row) {
+    $tracks = json_decode($row['tracks_json'], true);
+    $items[] = [
+      'id' => $row['id'], 'slug' => $row['slug'], 'title' => $row['title'],
+      'subtitle' => $row['description'], 'icon' => $row['icon'], 'color' => $row['color'],
+      'source' => $row['source'], 'country' => $row['country'],
+      'generatedAt' => $row['generated_at'], 'expiresAt' => $row['expires_at'],
+      'track_count' => is_array($tracks) ? count($tracks) : 0, 'views' => (int)$row['views'],
+    ];
+  }
+  $generated = $pdo->query("SELECT COUNT(*) FROM ai_playlists
+    WHERE source='ai-generated' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)")->fetchColumn();
+  return ['success' => true, 'lists' => $items,
+    'ai_provider_configured' => $GLOBALS['cfg']['ai_playlists_api_key'] !== '',
+    'can_generate' => $GLOBALS['cfg']['ai_playlists_api_key'] !== '' && (int)$generated === 0];
+}
+function reserve_ai_playlist_run($pdo, $runKey, $hours) {
+  $s = $pdo->prepare("INSERT INTO ai_playlist_runs (run_key,updated_at) VALUES (?,CURRENT_TIMESTAMP)
+    ON CONFLICT(run_key) DO UPDATE SET updated_at=CURRENT_TIMESTAMP
+    WHERE datetime(ai_playlist_runs.updated_at) <= datetime('now', ?)");
+  $s->execute([$runKey, '-' . (int)$hours . ' hours']);
+  return $s->rowCount() > 0;
+}
+function ai_playlist_request($messages) {
+  global $cfg;
+  $url = $cfg['ai_playlists_api_url'];
+  if ($cfg['ai_playlists_api_key'] === '') throw new RuntimeException('AI playlist generation is not configured');
+  if (!filter_var($url, FILTER_VALIDATE_URL) || strtolower((string)parse_url($url, PHP_URL_SCHEME)) !== 'https') {
+    throw new RuntimeException('AI_PLAYLISTS_API_URL must be a valid HTTPS URL');
+  }
+  $ch = curl_init($url);
+  curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_CONNECTTIMEOUT => 8,
+    CURLOPT_TIMEOUT => 35, CURLOPT_HTTPHEADER => [
+      'Authorization: Bearer ' . $cfg['ai_playlists_api_key'],
+      'Content-Type: application/json',
+    ],
+    CURLOPT_POSTFIELDS => json_encode([
+      'model' => $cfg['ai_playlists_model'], 'messages' => $messages,
+      'temperature' => 0.8, 'max_tokens' => 2200,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+  ]);
+  $response = curl_exec($ch);
+  $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+  $error = curl_error($ch);
+  curl_close($ch);
+  if ($response === false) throw new RuntimeException('AI playlist provider request failed: ' . $error);
+  $data = json_decode($response, true);
+  if ($code < 200 || $code >= 300) {
+    $message = is_array($data) ? ($data['error']['message'] ?? $data['message'] ?? '') : '';
+    throw new RuntimeException('AI playlist provider returned HTTP ' . $code . ($message !== '' ? ': ' . $message : ''));
+  }
+  $content = $data['choices'][0]['message']['content'] ?? '';
+  if (!is_string($content) || trim($content) === '') throw new RuntimeException('AI playlist provider returned an empty response');
+  return $content;
+}
+function ai_playlist_resolve_track($pdo, $name, $artist) {
+  global $cfg;
+  $params = ['term' => trim($name . ' ' . $artist), 'media' => 'music', 'entity' => 'song',
+    'limit' => 8, 'country' => $cfg['country']];
+  [$code, $response] = http_get('https://itunes.apple.com/search?' . http_build_query($params), ['Accept: application/json']);
+  if ($code !== 200 || !is_string($response)) throw new RuntimeException('iTunes track lookup failed with HTTP ' . $code);
+  $data = json_decode($response, true);
+  if (!is_array($data) || !is_array($data['results'] ?? null)) throw new RuntimeException('iTunes returned invalid track search data');
+  $results = $data['results'];
+  save_results($pdo, $results);
+  $nameLower = mb_strtolower(trim($name));
+  $artistLower = mb_strtolower(trim($artist));
+  $best = null; $bestScore = 0;
+  foreach ($results as $track) {
+    if (($track['wrapperType'] ?? '') !== 'track') continue;
+    $trackName = mb_strtolower((string)($track['trackName'] ?? ''));
+    $trackArtist = mb_strtolower((string)($track['artistName'] ?? ''));
+    $score = ($trackName === $nameLower ? 2 : (str_contains($trackName, $nameLower) || str_contains($nameLower, $trackName) ? 1 : 0)) +
+      ($trackArtist === $artistLower ? 2 : (str_contains($trackArtist, $artistLower) || str_contains($artistLower, $trackArtist) ? 1 : 0));
+    if ($score > $bestScore) { $best = $track; $bestScore = $score; }
+  }
+  return $bestScore >= 2 ? $best : null;
+}
+function save_ai_playlists($pdo, $lists, $source, $model = null, $country = 'us', $hours = 24) {
+  $expires = date('Y-m-d H:i:s', time() + $hours * 3600);
+  $prepared = [];
+  foreach (array_slice($lists, 0, 4) as $index => $list) {
+    if (!is_array($list)) continue;
+    $title = trim((string)($list['title'] ?? ''));
+    if ($title === '') continue;
+    $tracks = []; $seen = [];
+    foreach (array_slice(is_array($list['tracks'] ?? null) ? $list['tracks'] : [], 0, 8) as $track) {
+      if (!is_array($track)) continue;
+      $name = trim((string)($track['name'] ?? ''));
+      $artist = trim((string)($track['artist'] ?? ''));
+      if ($name === '' || $artist === '') continue;
+      $resolved = is_array($track['resolved'] ?? null) ? $track['resolved'] :
+        ai_playlist_resolve_track($pdo, $name, $artist);
+      if (!$resolved) continue;
+      $trackId = (string)($resolved['trackId'] ?? '');
+      if ($trackId === '' || isset($seen[$trackId])) continue;
+      $seen[$trackId] = true;
+      $resolved['reason'] = mb_substr(trim((string)($track['reason'] ?? '')), 0, 200);
+      $tracks[] = $resolved;
+    }
+    if (count($tracks) < 3) continue;
+    $id = substr(hash('sha256', $source . '|' . $country . '|' . date('Y-m-d') . '|' . $index . '|' . $title), 0, 24);
+    $slug = ai_playlist_slug($title, substr($id, 0, 6));
+    $prepared[] = [
+      $id, $slug, mb_substr($title, 0, 100), mb_substr(trim((string)($list['subtitle'] ?? '')), 0, 300),
+      in_array($list['icon'] ?? '', ['auto_awesome','music_note','trending_up','new_releases','favorite','nightlight','local_fire_department','bolt','album'], true) ? $list['icon'] : 'auto_awesome',
+      in_array($list['color'] ?? '', ['primary','info','success','warning','danger'], true) ? $list['color'] : 'primary',
+      $source, $country, $model, json_encode($tracks, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $expires,
+      ['id' => $id, 'title' => $title, 'track_count' => count($tracks)],
+    ];
+  }
+  if (!$prepared) return [];
+  $created = [];
+  $pdo->beginTransaction();
+  try {
+    $stmt = $pdo->prepare("INSERT INTO ai_playlists
+      (id,slug,title,description,icon,color,source,country,model,tracks_json,generated_at,expires_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+      ON CONFLICT(id) DO UPDATE SET title=excluded.title,description=excluded.description,icon=excluded.icon,
+        color=excluded.color,model=excluded.model,tracks_json=excluded.tracks_json,
+        generated_at=CURRENT_TIMESTAMP,expires_at=excluded.expires_at");
+    foreach ($prepared as $row) {
+      $created[] = array_pop($row);
+      $stmt->execute($row);
+    }
+    $pdo->commit();
+  } catch (Throwable $e) {
+    $pdo->rollBack();
+    throw $e;
+  }
+  return $created;
+}
+function refresh_ai_playlists($pdo, $force = false) {
+  global $cfg;
+  $existing = $pdo->query("SELECT COUNT(*) FROM ai_playlists
+    WHERE source='ai-generated' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)")->fetchColumn();
+  if ((int)$existing > 0 && !$force) return ['cached' => true] + ai_playlist_list($pdo);
+  if ($cfg['ai_playlists_api_key'] === '') throw new RuntimeException('AI playlist generation is unavailable. Configure AI_PLAYLISTS_API_KEY on the server.');
+  if (!reserve_ai_playlist_run($pdo, 'ai-global', $force ? 0 : 24)) return ['cached' => true] + ai_playlist_list($pdo, true);
+  try {
+    $content = ai_playlist_request([
+      ['role' => 'system', 'content' => 'Create exactly 3 varied music playlists, each with 4 real, well-known songs. Return only JSON: {"lists":[{"title":"...","subtitle":"...","icon":"auto_awesome","color":"primary","tracks":[{"name":"...","artist":"...","reason":"..."}]}]}. Use Material icon names such as auto_awesome, music_note, favorite, nightlight, and bolt. Do not invent tracks. Use distinct themes and avoid duplicate songs.'],
+      ['role' => 'user', 'content' => 'Create fresh, diverse playlists for today, ' . date('F j, Y') . '.'],
+    ]);
+    $start = strpos($content, '{'); $end = strrpos($content, '}');
+    $decoded = $start === false || $end === false ? null : json_decode(substr($content, $start, $end - $start + 1), true);
+    if (!is_array($decoded) || !is_array($decoded['lists'] ?? null)) throw new RuntimeException('AI playlist response did not contain a valid lists array');
+    $created = save_ai_playlists($pdo, $decoded['lists'], 'ai-generated', $cfg['ai_playlists_model']);
+    if (!$created) throw new RuntimeException('AI response did not resolve to enough valid songs');
+    $keep = array_column($created, 'id');
+    $placeholders = implode(',', array_fill(0, count($keep), '?'));
+    $pdo->prepare("DELETE FROM ai_playlists WHERE source='ai-generated' AND id NOT IN ($placeholders)")->execute($keep);
+    return ['cached' => false, 'created' => $created] + ai_playlist_list($pdo);
+  } catch (Throwable $e) {
+    $pdo->prepare('DELETE FROM ai_playlist_runs WHERE run_key=?')->execute(['ai-global']);
+    error_log('AI playlist generation failed: ' . $e->getMessage());
+    throw $e;
+  }
+}
+function refresh_chart_playlists($pdo, $country) {
+  $country = strtolower(trim($country));
+  if (!preg_match('/^[a-z]{2}$/', $country)) $country = 'us';
+  if (!reserve_ai_playlist_run($pdo, 'charts-' . $country, 12)) return ['cached' => true] + ai_playlist_list($pdo);
+  $feeds = [
+    ['feed' => 'most-played', 'type' => 'songs', 'title' => 'Top Songs'],
+    ['feed' => 'most-played', 'type' => 'albums', 'title' => 'Top Albums'],
+    ['feed' => 'new-music', 'type' => 'songs', 'title' => 'New Music'],
+    ['feed' => 'new-music', 'type' => 'albums', 'title' => 'New Albums'],
+  ];
+  $playlists = [];
+  try {
+    foreach ($feeds as $feed) {
+      $url = 'https://rss.applemarketingtools.com/api/v2/' . $country . '/music/' . $feed['feed'] . '/25/' . $feed['type'] . '.json';
+      [$code, $response] = http_get($url, ['Accept: application/json']);
+      $data = $code === 200 && is_string($response) ? json_decode($response, true) : null;
+      $entries = $data['feed']['results'] ?? [];
+      if (!is_array($entries)) continue;
+      $tracks = [];
+      foreach (array_slice($entries, 0, $feed['type'] === 'albums' ? 3 : 8) as $entry) {
+        if ($feed['type'] === 'albums') {
+          $albumUrl = (string)($entry['url'] ?? $entry['id'] ?? '');
+          if (!preg_match('/(\d+)(?:[?#].*)?$/', $albumUrl, $match)) continue;
+          $albumTracks = itunes('lookup', ['id' => $match[1], 'entity' => 'song', 'limit' => 200]);
+          save_results($pdo, $albumTracks);
+          foreach ($albumTracks as $track) {
+            if (($track['wrapperType'] ?? '') !== 'track') continue;
+            $tracks[] = [
+              'name' => (string)($track['trackName'] ?? ''),
+              'artist' => (string)($track['artistName'] ?? ''),
+              'reason' => 'Featured on a charting Apple Music album',
+              'resolved' => $track,
+            ];
+            if (count($tracks) >= 8) break 2;
+          }
+          continue;
+        }
+        $name = trim((string)($entry['name'] ?? ''));
+        $artist = trim((string)($entry['artistName'] ?? ''));
+        if ($name !== '' && $artist !== '') {
+          $songUrl = (string)($entry['url'] ?? $entry['id'] ?? '');
+          if (preg_match('/[?&]i=(\d+)/', $songUrl, $match)) {
+            $resolved = itunes('lookup', ['id' => $match[1], 'entity' => 'song']);
+            save_results($pdo, $resolved);
+            $resolvedTrack = null;
+            foreach ($resolved as $candidate) if (($candidate['wrapperType'] ?? '') === 'track') { $resolvedTrack = $candidate; break; }
+            if ($resolvedTrack) {
+              $tracks[] = ['name' => $name, 'artist' => $artist,
+                'reason' => 'Featured in Apple Music charts', 'resolved' => $resolvedTrack];
+              continue;
+            }
+          }
+          $tracks[] = ['name' => $name, 'artist' => $artist, 'reason' => 'Featured in Apple Music charts'];
+        }
+      }
+      if ($tracks) $playlists[] = [
+        'title' => $feed['title'] . ' · ' . strtoupper($country), 'subtitle' => 'A snapshot of Apple Music charts.',
+        'icon' => $feed['feed'] === 'new-music' ? 'new_releases' : 'trending_up',
+        'color' => 'primary', 'tracks' => $tracks,
+      ];
+    }
+    if (!$playlists) throw new RuntimeException('Apple Music chart feeds returned no usable playlists');
+    $created = save_ai_playlists($pdo, $playlists, 'apple-charts', null, $country, 24);
+    if (!$created) throw new RuntimeException('Apple Music chart entries did not resolve to enough tracks');
+    $keep = array_column($created, 'id');
+    $placeholders = implode(',', array_fill(0, count($keep), '?'));
+    $pdo->prepare("DELETE FROM ai_playlists WHERE source='apple-charts' AND country=? AND id NOT IN ($placeholders)")
+      ->execute(array_merge([$country], $keep));
+    return ['cached' => false, 'created' => $created] + ai_playlist_list($pdo);
+  } catch (Throwable $e) {
+    $pdo->prepare('DELETE FROM ai_playlist_runs WHERE run_key=?')->execute(['charts-' . $country]);
+    error_log('Apple chart playlist refresh failed: ' . $e->getMessage());
+    throw $e;
+  }
+}
 
 $action = $_GET['action'] ?? '';
 switch ($action) {
@@ -258,15 +536,318 @@ switch ($action) {
     $user = current_user();
     out(['user' => $user ? ['id' => (int)$user['id'], 'email' => $user['email']] : null]);
   }
+  case 'settings': {
+    $user = current_user(true);
+    $s = $pdo->prepare('SELECT settings_json, updated_at FROM user_settings WHERE user_id=?');
+    $s->execute([$user['id']]); $row = $s->fetch();
+    out(['settings' => $row ? json_decode($row['settings_json'], true) : null,
+      'updated_at' => $row['updated_at'] ?? null]);
+  }
+  case 'settings_save': {
+    $user = current_user(true); $b = body(); $input = $b['settings'] ?? null;
+    if (!is_array($input)) out(['error' => 'settings_required'], 400);
+    $s = $pdo->prepare('SELECT settings_json FROM user_settings WHERE user_id=?');
+    $s->execute([$user['id']]); $current = json_decode($s->fetchColumn() ?: '{}', true) ?: [];
+    $settings = array_replace([
+      'theme' => '', 'themeColor' => 0, 'refill' => true, 'motion' => false,
+      'saveData' => false, 'sleepMinutes' => 0, 'auto' => false, 'volume' => 0.8,
+    ], $current, $input);
+    if (!in_array($settings['theme'], ['', 'light', 'dark', 'auto'], true) ||
+        !is_numeric($settings['themeColor']) || (int)$settings['themeColor'] < 0 ||
+        (int)$settings['themeColor'] > 9 || (float)$settings['themeColor'] !== (float)(int)$settings['themeColor'] ||
+        !is_bool($settings['refill']) || !is_bool($settings['motion']) || !is_bool($settings['saveData']) || !is_bool($settings['auto']) ||
+        !is_numeric($settings['sleepMinutes']) || !in_array((int)$settings['sleepMinutes'], [0,15,30,45,60,90], true) ||
+        (float)$settings['sleepMinutes'] !== (float)(int)$settings['sleepMinutes'] ||
+        !is_numeric($settings['volume']) || !is_finite((float)$settings['volume']) ||
+        (float)$settings['volume'] < 0 || (float)$settings['volume'] > 1) {
+      out(['error' => 'settings_invalid'], 400);
+    }
+    $settings = [
+      'theme' => $settings['theme'], 'themeColor' => (int)$settings['themeColor'],
+      'refill' => $settings['refill'], 'motion' => $settings['motion'], 'saveData' => $settings['saveData'],
+      'sleepMinutes' => (int)$settings['sleepMinutes'], 'auto' => $settings['auto'],
+      'volume' => (float)$settings['volume'],
+    ];
+    $json = json_encode($settings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $pdo->prepare("INSERT INTO user_settings (user_id, settings_json) VALUES (?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET settings_json=excluded.settings_json, updated_at=CURRENT_TIMESTAMP")
+      ->execute([$user['id'], $json]);
+    out(['settings' => $settings]);
+  }
+  case 'profile_get': {
+    $viewer = current_user();
+    $requestedId = filter_var($_GET['user_id'] ?? 0, FILTER_VALIDATE_INT);
+    $userId = $requestedId ?: (int)($viewer['id'] ?? 0);
+    if ($userId < 1) out(['error' => 'authentication_required'], 401);
+    $s = $pdo->prepare('SELECT u.id,u.email,u.created_at,p.display_name,p.bio,p.avatar_url,p.is_public
+      FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=?');
+    $s->execute([$userId]); $row = $s->fetch();
+    if (!$row) out(['error' => 'profile_not_found'], 404);
+    $isSelf = (int)($viewer['id'] ?? 0) === $userId;
+    $isPublic = (bool)$row['is_public'];
+    $count = static function (string $sql) use ($pdo, $userId): int {
+      $q = $pdo->prepare($sql); $q->execute([$userId]); return (int)$q->fetchColumn();
+    };
+    $counts = [
+      'likes' => $count('SELECT COUNT(*) FROM favorites WHERE user_id=?'),
+      'following' => $count('SELECT COUNT(*) FROM followed_artists WHERE user_id=?'),
+      'playlists' => $count('SELECT COUNT(*) FROM playlists WHERE user_id=?'),
+    ];
+    $profile = [
+      'user_id' => $userId,
+      'display_name' => $row['display_name'] ?: strstr($row['email'], '@', true),
+      'bio' => $row['bio'] ?? '',
+      'avatar_url' => $row['avatar_url'] ?? '',
+      'is_public' => $isPublic,
+      'created_at' => $row['created_at'],
+    ];
+    $items = [];
+    if ($isSelf || $isPublic) {
+      $tab = $_GET['tab'] ?? 'stats';
+      if ($tab === 'likes') {
+        $q = $pdo->prepare('SELECT t.track_id,t.collection_id,t.artist_id,t.name,t.artist_name,t.collection_name,t.artwork,
+          t.duration_ms,t.preview_url,tf.bale_file_id,tf.telegram_file_id FROM favorites f
+          JOIN tracks t ON t.track_id=f.track_id LEFT JOIN track_files tf ON tf.track_id=t.track_id
+          WHERE f.user_id=? ORDER BY f.created_at DESC LIMIT 100');
+        $q->execute([$userId]); $items = decorate_local_tracks($q->fetchAll());
+      } elseif ($tab === 'following') {
+        $q = $pdo->prepare('SELECT f.artist_id,COALESCE(a.name,"Artist "||f.artist_id) AS name,a.genre,a.raw
+          FROM followed_artists f LEFT JOIN artists a ON a.artist_id=f.artist_id
+          WHERE f.user_id=? ORDER BY f.created_at DESC LIMIT 100');
+        $q->execute([$userId]); $items = $q->fetchAll();
+        foreach ($items as &$item) {
+          $raw = json_decode($item['raw'] ?? '', true);
+          $item['artwork'] = art($raw['artworkUrl100'] ?? '');
+          unset($item['raw']);
+        }
+        unset($item);
+      } elseif ($tab === 'playlists') {
+        $q = $pdo->prepare('SELECT p.id,p.name,p.updated_at,COUNT(pt.track_id) AS track_count
+          FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id=p.id
+          WHERE p.user_id=? GROUP BY p.id ORDER BY p.updated_at DESC,p.id DESC LIMIT 100');
+        $q->execute([$userId]); $items = $q->fetchAll();
+      }
+    } elseif (!$isSelf) {
+      out(['error' => 'profile_private', 'profile' => $profile, 'is_self' => false]);
+    }
+    out(['profile' => $profile, 'is_self' => $isSelf, 'counts' => $counts, 'items' => $items]);
+  }
+  case 'profile_save': {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(['error' => 'method_not_allowed'], 405);
+    $user = current_user(true); $b = body();
+    $name = trim((string)($b['display_name'] ?? ''));
+    $bio = trim((string)($b['bio'] ?? ''));
+    $avatar = trim((string)($b['avatar_url'] ?? ''));
+    $isPublic = $b['is_public'] ?? false;
+    if (mb_strlen($name) > 60 || mb_strlen($bio) > 400 || !is_bool($isPublic)) out(['error' => 'profile_invalid'], 400);
+    if ($avatar !== '' && (!filter_var($avatar, FILTER_VALIDATE_URL) || !in_array(strtolower((string)parse_url($avatar, PHP_URL_SCHEME)), ['http','https'], true) || strlen($avatar) > 2048)) {
+      out(['error' => 'avatar_url_invalid'], 400);
+    }
+    $pdo->prepare("INSERT INTO user_profiles (user_id,display_name,bio,avatar_url,is_public)
+      VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name,
+      bio=excluded.bio,avatar_url=excluded.avatar_url,is_public=excluded.is_public,updated_at=CURRENT_TIMESTAMP")
+      ->execute([(int)$user['id'],$name,$bio,$avatar,$isPublic ? 1 : 0]);
+    out(['ok' => true]);
+  }
   case 'search': {
     $term = trim($_GET['term'] ?? ''); if ($term === '') out(['error' => 'term required'], 400);
     $entity = in_array($_GET['entity'] ?? '', ['song', 'album', 'musicArtist']) ? $_GET['entity'] : 'song';
     $res = itunes('search', ['term' => $term, 'media' => 'music', 'entity' => $entity, 'limit' => min(50, (int)($_GET['limit'] ?? 25))]);
     save_results($pdo, $res); out(['results' => slim(attach_bale_playback($pdo, $res))]);
   }
+  case 'suggest': {
+    $term = trim((string)($_GET['q'] ?? $_GET['term'] ?? ''));
+    if (mb_strlen($term) < 2) out(['query' => $term, 'suggestions' => []]);
+    $limit = min(12, max(1, (int)($_GET['limit'] ?? 8)));
+    $entity = $_GET['entity'] ?? '';
+    $entities = $entity === 'song' ? ['song'] : ($entity === 'artist' ? ['musicArtist'] : ['song', 'musicArtist', 'album']);
+    $suggestions = []; $seen = [];
+    foreach ($entities as $type) {
+      $results = itunes('search', ['term' => $term, 'media' => 'music', 'entity' => $type, 'limit' => $type === 'musicArtist' ? 3 : $limit]);
+      save_results($pdo, $results);
+      foreach ($results as $result) {
+        $wrapper = $result['wrapperType'] ?? '';
+        $id = (int)($wrapper === 'track' ? ($result['trackId'] ?? 0) :
+          ($wrapper === 'artist' ? ($result['artistId'] ?? 0) : ($result['collectionId'] ?? 0)));
+        if ($id < 1 || isset($seen[$wrapper . ':' . $id])) continue;
+        $seen[$wrapper . ':' . $id] = true;
+        $suggestions[] = [
+          'id' => $id, 'type' => $wrapper,
+          'name' => $result['trackName'] ?? $result['collectionName'] ?? $result['artistName'] ?? '',
+          'artistName' => $result['artistName'] ?? '',
+          'artwork' => art($result['artworkUrl100'] ?? $result['artworkUrl60'] ?? ''),
+        ];
+        if (count($suggestions) >= $limit) break 2;
+      }
+    }
+    out(['query' => $term, 'suggestions' => $suggestions]);
+  }
+  case 'fresh': {
+    $limit = min(50, max(1, (int)($_GET['limit'] ?? 12)));
+    out(['results' => fresh_tracks($pdo, $limit)]);
+  }
   case 'lookup': { // id + entity=song|album ; album id -> its songs, artist id -> its albums
     $res = itunes('lookup', ['id' => (int)$_GET['id'], 'entity' => $_GET['entity'] ?? 'song', 'limit' => 200]);
     save_results($pdo, $res); out(['results' => slim(attach_bale_playback($pdo, $res))]);
+  }
+  case 'related_tracks':
+  case 'related': {
+    $trackId = (int)($_GET['track_id'] ?? $_GET['id'] ?? 0);
+    if ($trackId < 1) out(['error' => 'track_id_required'], 400);
+    $limit = min(50, max(1, (int)($_GET['limit'] ?? 12)));
+    $trackStmt = $pdo->prepare('SELECT track_id, collection_id, artist_id, name, artist_name, genre FROM tracks WHERE track_id=?');
+    $trackStmt->execute([$trackId]); $source = $trackStmt->fetch();
+    if (!$source) out(['error' => 'unknown_track'], 404);
+    $excludeIds = array_slice(array_values(array_unique(array_filter(array_map('intval',
+      explode(',', (string)($_GET['exclude'] ?? ''))), fn($id) => $id > 0))), -500);
+    $excludeIds[] = $trackId;
+    $excludeIds = array_values(array_unique($excludeIds));
+    $matches = []; $params = [];
+    if (!empty($source['artist_id'])) { $matches[] = 't.artist_id=?'; $params[] = $source['artist_id']; }
+    if (!empty($source['collection_id'])) { $matches[] = 't.collection_id=?'; $params[] = $source['collection_id']; }
+    if (!empty($source['genre'])) { $matches[] = 't.genre=?'; $params[] = $source['genre']; }
+    if (!$matches) out(['track_id' => $trackId, 'results' => []]);
+    $excludeSql = implode(',', array_fill(0, count($excludeIds), '?'));
+    $sql = "SELECT t.track_id,t.collection_id,t.artist_id,t.name,t.artist_name,t.collection_name,t.artwork,
+        t.duration_ms,t.track_number,t.track_count,t.disc_number,t.disc_count,t.release_date,t.genre,t.explicit,t.preview_url,
+        tf.bale_file_id,tf.telegram_file_id FROM tracks t LEFT JOIN track_files tf ON tf.track_id=t.track_id
+      WHERE t.track_id NOT IN ($excludeSql) AND (" . implode(' OR ', $matches) . ")
+      ORDER BY CASE WHEN t.artist_id=? THEN 0 WHEN t.collection_id=? THEN 1 ELSE 2 END,
+        CASE WHEN TRIM(COALESCE(tf.bale_file_id,''))<>'' OR TRIM(COALESCE(tf.telegram_file_id,''))<>'' THEN 0 ELSE 1 END,
+        t.updated_at DESC,t.track_id DESC LIMIT ?";
+    $params = array_merge($excludeIds, $params, [$source['artist_id'], $source['collection_id'], $limit]);
+    $s = $pdo->prepare($sql); $s->execute($params);
+    $results = decorate_local_tracks($s->fetchAll());
+    if (count($results) < $limit && !empty($source['artist_name'])) {
+      $remote = itunes('search', [
+        'term' => $source['artist_name'], 'media' => 'music', 'entity' => 'song', 'limit' => min(50, $limit * 3),
+      ]);
+      save_results($pdo, $remote);
+      $seen = array_fill_keys($excludeIds, true);
+      foreach ($results as $track) $seen[(int)$track['track_id']] = true;
+      $remote = array_values(array_filter($remote, function ($track) use (&$seen) {
+        if (($track['wrapperType'] ?? '') !== 'track') return false;
+        $id = (int)($track['trackId'] ?? 0);
+        if ($id < 1 || isset($seen[$id])) return false;
+        $seen[$id] = true;
+        return true;
+      }));
+      $results = array_merge($results, slim(attach_bale_playback($pdo, $remote)));
+      $results = array_slice($results, 0, $limit);
+    }
+    out(['track_id' => $trackId, 'results' => $results]);
+  }
+  case 'artist_tracks': {
+    $artistId = (int)($_GET['artist_id'] ?? $_GET['id'] ?? 0);
+    if ($artistId < 1) out(['error' => 'artist_id_required'], 400);
+    $allIds = tracks_for($pdo, 'artist', $artistId);
+    $page = max(1, (int)($_GET['page'] ?? 1));
+    $perPage = min(100, max(1, (int)($_GET['per_page'] ?? 50)));
+    $pageIds = array_slice($allIds, ($page - 1) * $perPage, $perPage);
+    if (!$pageIds) out(['artist_id' => $artistId, 'page' => $page, 'per_page' => $perPage,
+      'total' => count($allIds), 'items' => []]);
+    $placeholders = implode(',', array_fill(0, count($pageIds), '?'));
+    $s = $pdo->prepare("SELECT t.track_id,t.collection_id,t.artist_id,t.name,t.artist_name,t.collection_name,t.artwork,
+        t.duration_ms,t.track_number,t.track_count,t.disc_number,t.disc_count,t.release_date,t.genre,t.explicit,t.preview_url,
+        tf.bale_file_id,tf.telegram_file_id FROM tracks t LEFT JOIN track_files tf ON tf.track_id=t.track_id
+      WHERE t.track_id IN ($placeholders)");
+    $s->execute($pageIds);
+    $byId = [];
+    foreach (decorate_local_tracks($s->fetchAll()) as $track) $byId[(int)$track['track_id']] = $track;
+    $items = array_values(array_filter(array_map(fn($id) => $byId[(int)$id] ?? null, $pageIds)));
+    out(['artist_id' => $artistId, 'page' => $page, 'per_page' => $perPage,
+      'total' => count($allIds), 'items' => $items]);
+  }
+  case 'recently_crawled': {
+    $limit = min(50, max(1, (int)($_GET['limit'] ?? 12)));
+    $s = $pdo->prepare("SELECT t.track_id,t.collection_id,t.artist_id,t.name,t.artist_name,t.collection_name,t.artwork,
+        t.duration_ms,t.track_number,t.track_count,t.disc_number,t.disc_count,t.release_date,t.genre,t.explicit,t.preview_url,
+        MAX(q.updated_at) AS crawled_at,tf.bale_file_id,tf.telegram_file_id
+      FROM queue q JOIN tracks t ON t.track_id=q.track_id
+      JOIN track_files tf ON tf.track_id=t.track_id
+      WHERE q.status='done' AND (
+        TRIM(COALESCE(tf.bale_file_id,''))<>'' OR TRIM(COALESCE(tf.telegram_file_id,''))<>''
+      )
+      GROUP BY t.track_id ORDER BY crawled_at DESC,t.track_id DESC LIMIT ?");
+    $s->bindValue(1, $limit, PDO::PARAM_INT); $s->execute();
+    out(['items' => decorate_local_tracks($s->fetchAll())]);
+  }
+  case 'popular': {
+    $limit = min(50, max(1, (int)($_GET['limit'] ?? 12)));
+    out(['results' => popular_tracks($pdo, $limit)]);
+  }
+  case 'suggested_playlist': {
+    $limit = min(50, max(1, (int)($_GET['limit'] ?? 20)));
+    $user = current_user();
+    $items = [];
+    if ($user) {
+      $s = $pdo->prepare("SELECT t.track_id,t.collection_id,t.artist_id,t.name,t.artist_name,t.collection_name,t.artwork,
+          t.duration_ms,t.track_number,t.track_count,t.disc_number,t.disc_count,t.release_date,t.genre,t.explicit,t.preview_url,
+          tf.bale_file_id,tf.telegram_file_id
+        FROM tracks t LEFT JOIN track_files tf ON tf.track_id=t.track_id
+        WHERE t.artist_id IN (
+          SELECT artist_id FROM followed_artists WHERE user_id=?
+          UNION SELECT seed.artist_id FROM favorites f JOIN tracks seed ON seed.track_id=f.track_id
+            WHERE f.user_id=? AND seed.artist_id IS NOT NULL
+        )
+        AND NOT EXISTS (SELECT 1 FROM favorites f WHERE f.user_id=? AND f.track_id=t.track_id)
+        ORDER BY CASE WHEN TRIM(COALESCE(tf.bale_file_id,''))<>'' OR TRIM(COALESCE(tf.telegram_file_id,''))<>'' THEN 0 ELSE 1 END,
+          t.updated_at DESC,t.track_id DESC LIMIT ?");
+      $s->bindValue(1, (int)$user['id'], PDO::PARAM_INT);
+      $s->bindValue(2, (int)$user['id'], PDO::PARAM_INT);
+      $s->bindValue(3, (int)$user['id'], PDO::PARAM_INT);
+      $s->bindValue(4, $limit, PDO::PARAM_INT);
+      $s->execute(); $items = decorate_local_tracks($s->fetchAll());
+    }
+    $source = $items ? 'personalized' : 'popular';
+    if (!$items) $items = popular_tracks($pdo, $limit);
+    out(['playlist' => ['name' => $user ? 'Made for you' : 'Suggested tracks',
+      'description' => $items && $source === 'personalized' ? 'Based on artists you follow and songs you like.' : 'Popular tracks from the mman library.'],
+      'source' => $source, 'items' => $items]);
+  }
+  case 'ai_playlists':
+  case 'ai_lists': {
+    out(ai_playlist_list($pdo, filter_var($_GET['include_expired'] ?? false, FILTER_VALIDATE_BOOL)));
+  }
+  case 'ai_playlist': {
+    $id = trim((string)($_GET['id'] ?? ''));
+    if ($id === '') out(['error' => 'playlist_id_required'], 400);
+    $s = $pdo->prepare("SELECT id,slug,title,description,icon,color,source,country,model,tracks_json,views,generated_at,expires_at
+      FROM ai_playlists WHERE id=? AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP)");
+    $s->execute([$id]); $playlist = $s->fetch();
+    if (!$playlist) out(['error' => 'playlist_not_found'], 404);
+    $tracks = json_decode($playlist['tracks_json'], true);
+    if (!is_array($tracks)) out(['error' => 'playlist_data_invalid'], 500);
+    $tracks = attach_bale_playback($pdo, $tracks);
+    $pdo->prepare('UPDATE ai_playlists SET views=views+1 WHERE id=?')->execute([$id]);
+    out(['playlist' => [
+      'id' => $playlist['id'], 'slug' => $playlist['slug'], 'title' => $playlist['title'],
+      'description' => $playlist['description'], 'icon' => $playlist['icon'], 'color' => $playlist['color'],
+      'source' => $playlist['source'], 'country' => $playlist['country'],
+      'generated_at' => $playlist['generated_at'], 'expires_at' => $playlist['expires_at'],
+      'views' => (int)$playlist['views'] + 1,
+    ], 'items' => slim($tracks)]);
+  }
+  case 'ai_playlists_refresh':
+  case 'ai_lists_refresh': {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(['error' => 'method_not_allowed'], 405);
+    current_user(true);
+    if (filter_var($_GET['force'] ?? false, FILTER_VALIDATE_BOOL)) need_key();
+    try { out(refresh_ai_playlists($pdo, filter_var($_GET['force'] ?? false, FILTER_VALIDATE_BOOL))); }
+    catch (Throwable $e) {
+      error_log('AI playlist refresh failed: ' . $e->getMessage());
+      out(['error' => 'ai_playlist_refresh_failed', 'message' => $e->getMessage()], 502);
+    }
+  }
+  case 'ai_charts_refresh':
+  case 'ai_lists_itunes': {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(['error' => 'method_not_allowed'], 405);
+    current_user(true);
+    try { out(refresh_chart_playlists($pdo, (string)($_GET['country'] ?? $cfg['country']))); }
+    catch (Throwable $e) {
+      error_log('Chart playlist refresh failed: ' . $e->getMessage());
+      out(['error' => 'chart_playlist_refresh_failed', 'message' => $e->getMessage()], 502);
+    }
   }
   case 'bot_queue_add': { // POST {type: track|collection|artist, id}, reserved for the PHP webhook
     need_key();
@@ -484,6 +1065,22 @@ switch ($action) {
     unset($row);
     out(['playlist' => $playlist, 'page' => $page, 'per_page' => $pp, 'total' => $total,
       'pages' => (int)ceil($total / $pp), 'items' => $rows]);
+  }
+  case 'report_track_issue': {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(['error' => 'method_not_allowed'], 405);
+    $user = current_user(true); $b = body();
+    $trackId = filter_var($b['track_id'] ?? null, FILTER_VALIDATE_INT);
+    $type = $b['type'] ?? '';
+    $details = $b['details'] ?? '';
+    if (!$trackId || $trackId < 1) out(['error' => 'track_id_required'], 400);
+    if (!in_array($type, ['track_file', 'lyrics'], true)) out(['error' => 'report_type_invalid'], 400);
+    if (!is_string($details) || strlen($details) > 1000) out(['error' => 'report_details_invalid'], 400);
+    $track = $pdo->prepare('SELECT 1 FROM tracks WHERE track_id=?');
+    $track->execute([$trackId]);
+    if (!$track->fetchColumn()) out(['error' => 'unknown_track'], 404);
+    $s = $pdo->prepare('INSERT OR IGNORE INTO track_reports (user_id, track_id, report_type, details) VALUES (?, ?, ?, ?)');
+    $s->execute([(int)$user['id'], $trackId, $type, trim($details)]);
+    out(['reported' => $s->rowCount() > 0]);
   }
   case 'lyrics': { // cached lyrics, else live lrclib fallback
     $tid = (int)($_GET['track_id'] ?? 0); $row = lyrics_row($pdo, $tid);
